@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Колдунчик — тренажёр настройки парусов</title>
+<meta name="description" content="3D-тренажёр настройки парусов круизной яхты 13 м: ветер и курс, пианино и лебёдки, колдунчики, оценка по пунктам с подсказками и сценарии смены ветра.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Колдунчик — тренажёр настройки парусов">
+<meta property="og:description" content="3D-тренажёр настройки парусов круизной яхты 13 м: ветер и курс, пианино и лебёдки, колдунчики, оценка по пунктам с подсказками и сценарии смены ветра.">
+<meta name="theme-color" content="#0e2233">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect width='34' height='34' rx='8' fill='%230e2233'/%3E%3Cpath d='M8 30 L15 3 L28 28 Z' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M15 12 q4 -1 7 1' stroke='%23e3323a' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3Cpath d='M14 19 q4 -1 8 1' stroke='%231dac59' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Sofia+Sans+Condensed:wght@500;600;700;800&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <section id="stageWrap" aria-label="3D-вид яхты">
+    <div id="stage">
+      <canvas id="gl"></canvas>
+      <div id="loading"><p>Загружаю 3D-сцену…</p></div>
+      <div id="hud">
+        <div class="tile glass speed"><div class="lbl">Скорость</div><div class="val" id="hBsp">0.0<small>уз</small></div><div class="sub" id="hVmg">VMG —</div></div>
+        <div class="tile glass"><div class="lbl">Курс</div><div class="val" id="hHdg">000°</div><div class="sub" id="hPos">—</div></div>
+        <div class="tile glass"><div class="lbl">Истинный ветер</div><div class="val" id="hTws">0<small>уз</small></div><div class="sub" id="hTwa">—</div></div>
+        <div class="tile glass"><div class="lbl">Вымпельный</div><div class="val" id="hAws">0<small>уз</small></div><div class="sub" id="hAwa">—</div></div>
+        <div class="tile glass"><div class="lbl">Крен</div><div class="val" id="hHeel">0°</div><div class="sub" id="hRud">—</div></div>
+      </div>
+      <div id="banner" class="glass" hidden>
+        <div class="b-top"><div class="b-title" id="bTitle"></div><div class="b-phase" id="bPhase"></div></div>
+        <div class="b-obj" id="bObj"></div>
+        <div class="okbar" id="bOk" hidden><i></i></div>
+        <ol class="b-todo" id="bTodo" hidden></ol>
+        <div class="b-acts">
+          <button type="button" class="gbtn" id="bHint">Что делать?</button>
+          <button type="button" class="gbtn primary" id="bNow">Событие сейчас</button>
+          <button type="button" class="gbtn" id="bAgain">Заново</button>
+          <button type="button" class="gbtn" id="bExit">Выйти</button>
+        </div>
+      </div>
+      <div id="toasts" aria-live="polite"></div>
+      <div id="helmBar" class="glass" role="group" aria-label="Руль">
+        <button type="button" id="hLeft" aria-label="Руль влево">◀<span class="lbl"> Лево</span></button>
+        <button type="button" id="hUp">Привестись</button>
+        <div class="hdg" id="hHdg2">000°</div>
+        <button type="button" id="hDown">Увалиться</button>
+        <button type="button" id="hRight" aria-label="Руль вправо"><span class="lbl">Право </span>▶</button>
+        <div class="sep"></div>
+        <button type="button" id="hTack">Оверштаг</button>
+        <button type="button" id="hGybe">Фордевинд</button>
+      </div>
+    </div>
+    <div id="camBar">
+      <div class="pill glass" role="group" aria-label="Вид камеры">
+        <button type="button" data-view="free" aria-pressed="true">Свободно</button>
+        <button type="button" data-view="cockpit" aria-pressed="false">С кокпита</button>
+        <button type="button" data-view="stern" aria-pressed="false">Сзади</button>
+        <button type="button" data-view="top" aria-pressed="false">Сверху</button>
+        <button type="button" data-view="side" aria-pressed="false">Сбоку</button>
+      </div>
+      <div class="pill glass">
+        <button type="button" id="btnWindVis" aria-pressed="true" title="Струйки вымпельного ветра вокруг лодки">Струйки</button>
+        <button type="button" id="btnPause" aria-pressed="false">Пауза</button>
+      </div>
+    </div>
+    <div id="gauges">
+      <div class="gcard glass"><div class="gtitle"><span>Ветер</span><span id="dialMode">вымп. / ист.</span></div><canvas id="windDial"></canvas></div>
+      <div class="gcard glass"><div class="gtitle"><span>Колдунчики</span><span id="tellVerdict"></span></div><canvas id="tellCanvas"></canvas></div>
+    </div>
+  </section>
+
+  <aside id="panel" aria-label="Панель управления">
+    <header class="brand">
+      <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><path d="M8 30 L15 3 L28 28 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 12 q4 -1 7 1" stroke="#d2343a" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M14 19 q4 -1 8 1" stroke="#1b9a55" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M4 31 h26" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <div><h1>Колдунчик</h1><p>Тренажёр настройки парусов · яхта 13 м, шлюп (тип Dufour 430)</p></div>
+    </header>
+
+    <section id="scoreCard" aria-label="Оценка настройки">
+      <div class="score-head">
+        <div class="score-num" id="scoreNum">0<span>%</span></div>
+        <div class="score-meta">
+          <div class="score-label">Настройка парусов</div>
+          <div class="segbar" id="scoreBar"></div>
+          <div class="score-sub" id="scoreSub">—</div>
+        </div>
+      </div>
+      <div class="score-actions">
+        <button type="button" class="btn" id="btnTop">Что исправить первым?</button>
+        <button type="button" class="btn" id="btnSolve">Показать правильно</button>
+        <label class="check"><input type="checkbox" id="autoHints"> Подсказки сразу</label>
+      </div>
+      <div class="items" id="items"></div>
+      <div class="hint" id="hintBox" hidden>
+        <div class="hint-h"><b id="hintName"></b><span id="hintSt"></span><button type="button" class="x" id="hintClose" aria-label="Скрыть подсказку">×</button></div>
+        <p class="diag" id="hintDiag"></p>
+        <p class="act" id="hintAct"></p>
+      </div>
+    </section>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" aria-selected="true" data-tab="ctl">Управление</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="wind">Ветер и курс</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="scn">Сценарии</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="help">Справка</button>
+    </nav>
+
+    <div class="pane" data-pane="ctl">
+      <div class="seg" role="group" aria-label="Режим управления">
+        <button type="button" id="modeQuick" aria-pressed="true">Быстрые настройки<small>ползунки</small></button>
+        <button type="button" id="modeDeck" aria-pressed="false">Палуба<small>пианино и лебёдки</small></button>
+      </div>
+      <div id="quickPane">
+        <div id="quickGroups"></div>
+        <label class="check"><input type="checkbox" id="showTargets"> Показывать цели на шкалах</label>
+      </div>
+      <div id="deckPane" hidden>
+        <p class="note">Нажмите на стопор, лебёдку, каретку или погон. Стопор пропускает снасть на выбирание, но не даёт травить: чтобы потравить, заведите снасть на лебёдку и откройте стопор.</p>
+        <div class="deckwrap"><svg id="deckSvg" viewBox="0 0 360 486" role="img" aria-label="Схема кокпита и рубки: пианино, лебёдки, погоны"></svg></div>
+        <div class="selcard" id="selCard"><p class="note">Ничего не выбрано. Начните со стопора в пианино.</p></div>
+        <p class="msgline" id="deckMsg" hidden></p>
+        <div><div class="score-label">Журнал</div><ul class="log" id="deckLog"></ul></div>
+      </div>
+    </div>
+
+    <div class="pane" data-pane="wind" hidden>
+      <div class="group">
+        <h3>Истинный ветер</h3>
+        <div class="windrow">
+          <svg id="dirDial" viewBox="0 0 150 150" role="slider" aria-label="Направление истинного ветра" tabindex="0" aria-valuemin="0" aria-valuemax="359"></svg>
+          <div>
+            <div class="ctl">
+              <div class="ctl-top"><label for="twsR">Сила ветра</label><output id="twsOut">12 уз</output></div>
+              <div class="range"><input type="range" id="twsR" min="0" max="30" step="0.5"></div>
+              <div class="ends"><span>штиль</span><span id="bft"></span><span>30 уз</span></div>
+            </div>
+            <div class="ctl-top"><span class="note">Направление (откуда дует)</span><output id="twdOut">000°</output></div>
+            <p class="note">Перетащите синюю стрелку по кругу.</p>
+            <label class="check" style="margin-top:8px"><input type="checkbox" id="gusts"> Порывы и колебания</label>
+          </div>
+        </div>
+      </div>
+      <div class="group">
+        <h3>Сдвиг ветра</h3>
+        <div class="shiftbtns" id="shiftBtns"></div>
+        <p class="note" id="shiftNote" style="margin-top:8px"></p>
+        <button type="button" class="btn" id="btnRandom" style="margin-top:8px">Случайное изменение ветра</button>
+      </div>
+      <div class="group">
+        <h3>Курс</h3>
+        <div class="ctl">
+          <div class="ctl-top"><label for="hdgR">Компасный курс</label><output id="hdgOut">000°</output></div>
+          <div class="range"><input type="range" id="hdgR" min="0" max="359" step="1"></div>
+          <div class="ends"><span>С 0°</span><span>В 90°</span><span>Ю 180°</span><span>З 270°</span><span>359°</span></div>
+        </div>
+        <p class="note">Руль — кнопки внизу 3D-окна или стрелки ← → (с Shift — медленнее). «Привестись» поворачивает к ветру, «Увалиться» — от ветра.</p>
+      </div>
+    </div>
+
+    <div class="pane" data-pane="scn" hidden>
+      <div class="freebox">
+        <b id="freeTitle">Свободное плавание</b>
+        <p class="note" id="freeNote">Меняйте ветер и курс сами. Сценарий ставит задачу, меняет ветер и проверяет реакцию: оценка должна держаться выше 85% четыре секунды.</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn" id="btnRandom2">Случайная смена ветра</button><button type="button" class="btn" id="btnExitScn" hidden>Выйти из сценария</button></div>
+      </div>
+      <div id="scList"></div>
+    </div>
+
+    <div class="pane help" data-pane="help" hidden>
+      <div>
+        <h3>Как читать колдунчики</h3>
+        <p>На стакселе по три пары ленточек у передней шкаторины: красная — на левой стороне паруса, зелёная — на правой. Наветренная сторона обращена к ветру, подветренная — от него.</p>
+        <ul>
+          <li><b>Наветренные трепещут или поднимаются</b> — парус потравлен или курс слишком острый. Выберите шкот или увалитесь.</li>
+          <li><b>Подветренные срываются и крутятся</b> — парус перетянут. Потравите шкот или приведитесь.</li>
+          <li><b>Верхние заполаскивают раньше нижних</b> — верх слишком открыт, каретку стакселя вперёд.</li>
+          <li><b>Нижние заполаскивают раньше верхних</b> — каретку назад.</li>
+          <li><b>Колдунчики на задней шкаторине грота</b>: верхний должен струиться примерно половину времени. Всё время за парусом — грот перетянут или скрутка мала.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Курсы относительно ветра</h3>
+        <table class="pos-table"><tbody>
+          <tr><td>0–30°</td><td>Левентик — мёртвый сектор, паруса не работают</td></tr>
+          <tr><td>38–55°</td><td>Крутой бейдевинд — лавировка, шкоты выбраны</td></tr>
+          <tr><td>55–80°</td><td>Полный бейдевинд</td></tr>
+          <tr><td>80–100°</td><td>Галфвинд — ветер в борт</td></tr>
+          <tr><td>100–160°</td><td>Бакштаг — ветер сзади-сбоку</td></tr>
+          <tr><td>160–180°</td><td>Фордевинд — ветер в корму</td></tr>
+        </tbody></table>
+        <p>Ветер <b>заходит</b>, когда смещается к носу, — паруса начинают заполаскивать, приходится выбирать шкоты или уваливаться. Ветер <b>отходит</b>, когда смещается к корме, — паруса перетянуты: травите шкоты или приводитесь.</p>
+      </div>
+      <div>
+        <h3>Пианино и лебёдки</h3>
+        <ul>
+          <li>Стопор пропускает снасть на выбирание даже закрытым. Травить через закрытый стопор нельзя.</li>
+          <li>Чтобы потравить: заведите снасть на лебёдку → откройте стопор → травите → закройте стопор → снимите с лебёдки.</li>
+          <li>На лебёдке одна снасть. Чтобы тянуть другую, снимите первую — её удержит закрытый стопор.</li>
+          <li>Никогда не открывайте стопор нагруженной снасти без лебёдки: фал уронит грот, гика-шкот выбросит гик.</li>
+          <li>Каретку стакселя под нагрузкой не сдвинуть: потравите шкот, переставьте, снова выберите.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Словарь</h3>
+        <dl>
+          <dt>Шкот</dt><dd>Снасть, которой управляют углом паруса.</dd>
+          <dt>Каретка стакселя</dt><dd>Блок шкота на погоне у борта. Вперёд — верх паруса закрывается, назад — открывается.</dd>
+          <dt>Погон гика-шкота</dt><dd>Рельс с кареткой: двигает гик к ветру или под ветер, не меняя натяжение задней шкаторины.</dd>
+          <dt>Оттяжка гика</dt><dd>Тянет гик вниз и держит скрутку грота на полных курсах.</dd>
+          <dt>Аутхол</dt><dd>Натягивает нижнюю шкаторину грота вдоль гика.</dd>
+          <dt>Ахтерштаг</dt><dd>Задний штаг. Туже — мачта гнётся, грот площе, штаг меньше провисает.</dd>
+          <dt>Фал</dt><dd>Поднимает парус и натягивает переднюю шкаторину.</dd>
+          <dt>Риф</dt><dd>Уменьшение площади грота: часть паруса прибирают к гику.</dd>
+          <dt>Скрутка</dt><dd>Разница углов паруса внизу и вверху. Больше скрутка — верх разгружен.</dd>
+          <dt>Привестись / увалиться</dt><dd>Повернуть к ветру / от ветра.</dd>
+          <dt>На рауле</dt><dd>Фордевинд, при котором ветер дует со стороны гика. Грозит перебросом гика.</dd>
+        </dl>
+      </div>
+      <p class="note">Модель упрощённая и учебная: поляра и силы подобраны под круизную яхту 13 м. Цифры подсказок ориентировочные — на настоящей лодке ориентируйтесь на колдунчики и ощущение руля.</p>
+    </div>
+  </aside>
+</div>
+
+<div id="debrief" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="dbTitle">
+    <div class="kicker">Сценарий пройден</div>
+    <h2 id="dbTitle"></h2>
+    <div class="stats"><div><b id="dbTime"></b>на реакцию</div><div><b id="dbScore"></b>итоговая настройка</div></div>
+    <div id="dbMist"></div>
+    <h3>Что нужно было сделать</h3>
+    <ol id="dbTodo"></ol>
+    <h3>Почему так</h3>
+    <p id="dbWhy"></p>
+    <div class="row">
+      <button type="button" class="btn" id="dbClose">Остаться в ситуации</button>
+      <button type="button" class="btn" id="dbAgain">Повторить</button>
+      <button type="button" class="btn primary" id="dbNext">Следующий сценарий</button>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
