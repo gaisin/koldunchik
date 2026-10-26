@@ -1,10 +1,13 @@
 /* ============================================================
-   Колдунчик — интерфейс и главный цикл
+   Колдунчик / Telltale — интерфейс и главный цикл
+   Тексты — через I18N.t (интерфейс) и SIM.T / SIM.loc (модель).
    ============================================================ */
 (function (G) {
 'use strict';
-const SIM = G.SIM;
+const SIM = G.SIM, I18N = G.I18N;
 const { clamp, lerp, wrap180, wrap360, sgn, D2R, LINES, BOAT } = SIM;
+const t = (k, ...a) => I18N.t(k, ...a);
+const L = v => SIM.loc(v);
 const $ = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const r0 = Math.round;
@@ -16,6 +19,7 @@ const store = {
   get(k, d) { try { const v = G.localStorage.getItem('kold.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { G.localStorage.setItem('kold.' + k, JSON.stringify(v)); } catch (e) { /* хранилище недоступно */ } }
 };
+SIM.setLang(I18N.lang);
 
 /* ---------- раскладка: телефон или компьютер ---------- */
 const Q_PHONE = '(max-width: 860px) and (orientation: portrait), (max-width: 620px), (orientation: landscape) and (max-height: 520px)';
@@ -33,7 +37,7 @@ S.events.length = 0;
 const ui = {
   view: isPhone() ? 'auto' : 'free', lastFocus: 'all', showWind: true, tab: 'ctl',
   selItem: null, autoHints: !!store.get('autoHints', false), showTargets: false, targets: null, tgtT: -9,
-  anim: null, completed: store.get('done', {}) || {}, todoOpen: false, bannerOpen: false,
+  anim: null, completed: store.get('done', {}) || {}, todoOpen: false, todoKey: '', bannerOpen: false,
   sel: null, selSig: '', selHint: false, hlKey: undefined, dialDrag: false, openHints: {},
   stageFrac: clamp(+store.get('stageFrac', 0.44) || 0.44, 0.22, 0.72), stripDrag: null, stripMoved: false
 };
@@ -44,7 +48,7 @@ const EFF_HOLD = 12;
 /* ---------- 3D ---------- */
 let scene = null;
 try { if (G.THREE && G.KScene) scene = G.KScene.createScene($('#gl')); } catch (e) { console.error(e); scene = null; }
-if (!scene) $('#loading p').textContent = '3D-вид не запустился: браузер не поддерживает WebGL или библиотека не загрузилась. Приборы, колдунчики, оценка и сценарии работают.';
+if (!scene) { const p = $('#loading p'); p.removeAttribute('data-t'); p.textContent = t('err_webgl'); }
 function hl(key) { if (scene && ui.hlKey !== key) { ui.hlKey = key; scene.highlight(key); } }
 function resize() { if (!scene) return; const r = $('#stage').getBoundingClientRect(); scene.resize(Math.max(1, r.width), Math.max(1, r.height)); }
 function camFocus(key) { if (scene && key && ui.view === 'auto') { scene.focus(key); ui.lastFocus = key; } }
@@ -82,28 +86,42 @@ function holdable(el, start, end) {
 }
 
 /* ---------- руль ---------- */
-const helmOn = cmd => () => { S.helm.auto = null; S.helm.cmd = typeof cmd === 'function' ? cmd() : cmd; effectTouch('Руль', null); };
+const helmOn = cmd => () => { SIM.setLash(S, false); S.heave = null; S.helm.cmd = typeof cmd === 'function' ? cmd() : cmd; effectTouch(t('eff_helm'), null); };
 const helmOff = () => { S.helm.cmd = 0; };
 holdable($('#hLeft'), helmOn(-1), helmOff);
 holdable($('#hRight'), helmOn(1), helmOff);
 holdable($('#hUp'), helmOn(() => (S.D ? sgn(S.D.twa) : 1)), helmOff);
 holdable($('#hDown'), helmOn(() => (S.D ? -sgn(S.D.twa) : -1)), helmOff);
 $('#hTack').addEventListener('click', () => {
-  if (!SIM.startManeuver(S, 'tack')) { toast('Оверштаг делают с острых курсов: ветер должен быть впереди траверза.', 'warn'); return; }
-  effectTouch('Поворот оверштаг', null);
-  if (S.mode === 'deck') toast('Поворот начат. Когда стаксель заполощет — отдайте рабочий шкот и выберите шкот другого борта.', 'info', 5500);
+  S.heave = null;
+  if (!SIM.startManeuver(S, 'tack')) { toast(t('tack_bad'), 'warn'); return; }
+  effectTouch(t('eff_tack'), null);
+  if (S.mode === 'deck') toast(t('tack_deck'), 'info', 5500);
 });
 $('#hGybe').addEventListener('click', () => {
-  if (!SIM.startManeuver(S, 'gybe')) { toast('Поворот фордевинд делают с полных курсов: ветер должен быть сзади.', 'warn'); return; }
-  effectTouch('Поворот фордевинд', null);
-  if (S.rig.main > 0.25) toast('Гика-шкот потравлен — гик перебросит резко. Перед поворотом выберите его почти до центра.', 'warn', 5500);
+  S.heave = null;
+  if (!SIM.startManeuver(S, 'gybe')) { toast(t('gybe_bad'), 'warn'); return; }
+  effectTouch(t('eff_gybe'), null);
+  if (S.rig.main > 0.25) toast(t('gybe_eased'), 'warn', 5500);
 });
+function toggleLash(on) {
+  const v = on == null ? !S.helm.lash : !!on;
+  SIM.setLash(S, v); S.heave = null;
+  toast(t(v ? 'lash_on' : 'lash_off'), 'info', 2600);
+  effectTouch(t('eff_lash'), null);
+  syncHelm();
+}
+$('#hLash').addEventListener('click', () => toggleLash());
+function syncHelm() {
+  $('#hLash').setAttribute('aria-pressed', String(!!S.helm.lash));
+  const q = $('#q_lash'); if (q) q.checked = !!S.helm.lash;
+}
 document.addEventListener('keydown', e => {
-  const t = e.target;
-  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || (t.getAttribute && t.getAttribute('role') === 'slider'))) return;
+  const tg = e.target;
+  if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || (tg.getAttribute && tg.getAttribute('role') === 'slider'))) return;
   if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-    e.preventDefault(); S.helm.auto = null; S.helm.cmd = e.key === 'ArrowLeft' ? -1 : 1; S.helm.fine = e.shiftKey;
-    if (!e.repeat) effectTouch('Руль', null);
+    e.preventDefault(); SIM.setLash(S, false); S.heave = null; S.helm.cmd = e.key === 'ArrowLeft' ? -1 : 1; S.helm.fine = e.shiftKey;
+    if (!e.repeat) effectTouch(t('eff_helm'), null);
   }
 });
 document.addEventListener('keyup', e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { S.helm.cmd = 0; S.helm.fine = false; } });
@@ -127,8 +145,17 @@ document.addEventListener('pointerdown', e => {
   closeCamMenu();
 });
 $('#btnWindVis').addEventListener('click', e => { ui.showWind = !ui.showWind; e.currentTarget.setAttribute('aria-pressed', String(ui.showWind)); });
-function togglePause() { S.paused = !S.paused; const b = $('#btnPause'); b.setAttribute('aria-pressed', String(S.paused)); b.textContent = S.paused ? 'Продолжить' : 'Пауза'; }
-$('#btnPause').addEventListener('click', togglePause);
+function syncPause() { const b = $('#btnPause'); b.setAttribute('aria-pressed', String(S.paused)); b.textContent = t(S.paused ? 'resume' : 'pause'); }
+$('#btnPause').addEventListener('click', () => { S.paused = !S.paused; syncPause(); });
+
+/* ---------- язык ---------- */
+function syncLangUI() {
+  $$('.langsw [data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === I18N.lang)));
+  $('#langBtn').textContent = I18N.lang === 'ru' ? 'EN' : 'RU';
+  $('#langBtn').setAttribute('lang', I18N.lang === 'ru' ? 'en' : 'ru');
+}
+$$('.langsw [data-lang]').forEach(b => b.addEventListener('click', () => I18N.set(b.dataset.lang)));
+$('#langBtn').addEventListener('click', () => I18N.set(I18N.lang === 'ru' ? 'en' : 'ru'));
 
 /* ---------- вкладки и режимы ---------- */
 function setTab(tab) {
@@ -148,73 +175,89 @@ function setMode(m) {
   ui.anim = null;
   select(null);
   if (m === 'quick') syncSliders(true);
-  if (m === 'deck') toast('Режим «Палуба»: снасти держат стопора, лебёдки свободны. Чтобы что-то потравить — лебёдка, затем стопор.', 'info', 5500);
+  if (m === 'deck') toast(t('deck_toast'), 'info', 5500);
 }
 $('#modeQuick').addEventListener('click', () => setMode('quick'));
 $('#modeDeck').addEventListener('click', () => setMode('deck'));
 
 /* ---------- оценка: общие помощники ---------- */
-const ST_TXT = { ok: 'хорошо', warn: 'можно лучше', bad: 'плохо', na: 'не оценивается' };
 const ST_SYM = { ok: '✓', warn: '!', bad: '✕', na: '–' };
-const itemOf = (D, id) => (D ? D.items.find(x => x.id === id) : null);
+const stTxt = s => t('st_' + s);
+const itemOf = (D, id) => (D && id ? D.items.find(x => x.id === id) : null);
 function setSt(btn, it) { const st = it ? it.status : 'na'; btn.className = `st st-${st}`; btn.textContent = ST_SYM[st]; }
 function fillHint(box, it) {
   const st = it ? it.status : 'na';
   box.className = `ihint st-${st}`;
   box.querySelector('b').textContent = it ? it.name : '';
-  box.querySelector('span').textContent = ST_TXT[st];
+  box.querySelector('span').textContent = stTxt(st);
   box.querySelector('.diag').textContent = it ? (it.diag || '') : '';
   box.querySelector('.act').textContent = it && st !== 'ok' && st !== 'na' ? (it.act || '') : '';
 }
-const stBtn = (id, label) => `<button type="button" class="st st-na" id="st_${id}" aria-expanded="false" aria-controls="ih_${id}" title="Оценка: ${label}. Нажмите — подсказка">–</button>`;
+const stBtn = (id, label) => `<button type="button" class="st st-na" id="st_${id}" aria-expanded="false" aria-controls="ih_${id}" title="${esc(t('st_title', label))}">–</button>`;
 const ihintHtml = id => `<div class="ihint" id="ih_${id}" hidden><div class="ih-h"><b></b><span></span></div><p class="diag"></p><p class="act"></p></div>`;
 
 /* ---------- быстрые настройки ---------- */
 const QS = [
-  { title: 'Стаксель (генуя)', extra: 'goose', items: [
-    { key: 'jibSheet', label: 'Шкот стакселя', item: 'jibAoA', focus: 'trim', min: 0, max: 1, step: 0.005, ends: ['выбран', 'потравлен'], hl: () => (S.D && S.D.jib.fill > 0 ? 'sheetS' : 'sheetP'), out: () => (S.D ? `стаксель ${r0(Math.abs(S.D.jib.delta))}° к ДП` : '') },
-    { key: 'car', label: 'Каретка стакселя', item: 'jibTwist', focus: 'jibTwist', min: 0, max: 1, step: 1 / 14, ends: ['вперёд', 'назад'], hl: () => (S.D && S.D.jib.fill > 0 ? 'carS' : 'carP'), out: v => `отверстие ${r0(v * 14) + 1} из 15` },
-    { key: 'open', label: 'Раскрытие стакселя', item: 'furl', focus: 'area', min: 0, max: 1, step: 0.01, ends: ['закручен', 'раскрыт'], hl: () => 'furl', out: v => pct(v) }
+  { tk: 'g_genoa', extra: 'goose', items: [
+    { key: 'jibSheet', lk: 'q_jibSheet', ek: 'e_inEased', item: 'jibAoA', hove: 'hvJib', focus: 'trim', min: 0, max: 1, step: 0.005, hl: () => (S.D && S.D.jib.fill > 0 ? 'sheetS' : 'sheetP'), out: () => (S.D ? t('o_jib', r0(Math.abs(S.D.jib.delta))) : '') },
+    { key: 'car', lk: 'q_car', ek: 'e_fwdAft', item: 'jibTwist', focus: 'jibTwist', min: 0, max: 1, step: 1 / 14, hl: () => (S.D && S.D.jib.fill > 0 ? 'carS' : 'carP'), out: v => t('o_hole', r0(v * 14) + 1) },
+    { key: 'open', lk: 'q_open', ek: 'e_furl', item: 'furl', focus: 'area', min: 0, max: 1, step: 0.01, hl: () => 'furl', out: v => t('o_open', pct(v)) }
   ] },
-  { title: 'Грот', extra: 'reef', items: [
-    { key: 'mainsheet', label: 'Гика-шкот', item: 'mainAoA', focus: 'trim', min: 0, max: 1, step: 0.005, ends: ['выбран', 'потравлен'], hl: () => 'main', out: () => `гик ${r0(Math.abs(S.boomAngle))}°` },
-    { key: 'travLee', label: 'Погон гика-шкота', item: 'mainAoA', focus: 'trim', min: -1, max: 1, step: 0.02, ends: ['на ветер', 'центр', 'под ветер'], hl: () => 'trav', out: v => (v > 0.02 ? `${pct(v)} под ветер` : v < -0.02 ? `${pct(-v)} на ветер` : 'по центру') },
-    { key: 'vang', label: 'Оттяжка гика', item: 'mainTwist', focus: 'twist', min: 0, max: 1, step: 0.01, ends: ['слабо', 'туго'], hl: () => 'vang', out: pct },
-    { key: 'outhaul', label: 'Аутхол', item: 'depth', focus: 'shape', min: 0, max: 1, step: 0.01, ends: ['пузатый низ', 'плоский низ'], hl: () => 'outhaul', out: pct },
-    { key: 'luff', label: 'Фал грота — натяжение', name: 'Фал грота', item: 'luff', focus: 'shape', min: 0, max: 1, step: 0.01, ends: ['слабо', 'туго'], hl: () => 'halyard', out: pct }
+  { tk: 'g_main', extra: 'reef', items: [
+    { key: 'mainsheet', lk: 'q_mainsheet', ek: 'e_inEased', item: 'mainAoA', hove: 'hvMain', focus: 'trim', min: 0, max: 1, step: 0.005, hl: () => 'main', out: () => t('o_boom', r0(Math.abs(S.boomAngle))) },
+    { key: 'travLee', lk: 'q_trav', ek: 'e_trav', item: 'mainAoA', hove: 'hvMain', focus: 'trim', min: -1, max: 1, step: 0.02, hl: () => 'trav', out: v => (v > 0.02 ? t('o_trav_lee', pct(v)) : v < -0.02 ? t('o_trav_win', pct(-v)) : t('o_trav_c')) },
+    { key: 'vang', lk: 'q_vang', ek: 'e_looseTight', item: 'mainTwist', focus: 'twist', min: 0, max: 1, step: 0.01, hl: () => 'vang', out: pct },
+    { key: 'outhaul', lk: 'q_outhaul', ek: 'e_outhaul', item: 'depth', focus: 'shape', min: 0, max: 1, step: 0.01, hl: () => 'outhaul', out: pct },
+    { key: 'luff', lk: 'q_luff', nk: 'q_luff_name', ek: 'e_looseTight', item: 'luff', focus: 'shape', min: 0, max: 1, step: 0.01, hl: () => 'halyard', out: pct }
   ] },
-  { title: 'Рангоут', items: [
-    { key: 'backstay', label: 'Ахтерштаг', item: 'depth', focus: 'shape', min: 0, max: 1, step: 0.01, ends: ['потравлен', 'туго'], hl: () => 'backstay', out: pct }
+  { tk: 'g_rig', items: [
+    { key: 'backstay', lk: 'q_backstay', ek: 'e_bs', item: 'depth', focus: 'shape', min: 0, max: 1, step: 0.01, hl: () => 'backstay', out: pct }
   ] }
 ];
 const QCTL = QS.flatMap(g => g.items);
 const QKEYS = QCTL.map(c => c.key);
-const CTL_ITEM = Object.assign({ reef: 'reef' }, Object.fromEntries(QCTL.map(c => [c.key, c.item])));
+const ctlName = c => t(c.nk || c.lk);
+const CTL_ITEM = Object.assign({ reef: { item: 'reef' } }, Object.fromEntries(QCTL.map(c => [c.key, c])));
 function buildQuick() {
   let html = '';
   for (const g of QS) {
-    html += `<div class="group"><h3>${g.title}</h3>`;
+    html += `<div class="group"><h3>${t(g.tk)}</h3>`;
     for (const c of g.items) {
-      html += `<div class="ctl"><div class="ctl-top"><label for="q_${c.key}">${c.label}</label>${stBtn(c.key, c.name || c.label)}<output id="o_${c.key}"></output></div>` +
+      html += `<div class="ctl"><div class="ctl-top"><label for="q_${c.key}">${t(c.lk)}</label>${stBtn(c.key, ctlName(c))}<output id="o_${c.key}"></output></div>` +
         `<div class="range"><span class="tgt" id="t_${c.key}" hidden></span><input type="range" id="q_${c.key}" min="${c.min}" max="${c.max}" step="${c.step}"></div>` +
-        `<div class="ends">${c.ends.map(e => `<span>${e}</span>`).join('')}</div>${ihintHtml(c.key)}</div>`;
+        `<div class="ends">${t(c.ek).map(e => `<span>${e}</span>`).join('')}</div>${ihintHtml(c.key)}</div>`;
     }
-    if (g.extra === 'goose') html += '<div class="toggle-row" id="gooseRow" hidden><label class="check"><input type="checkbox" id="q_goose"> Бабочка: стаксель на выносном гике на другой борт</label></div>';
-    if (g.extra === 'reef') html += `<div class="ctl"><div class="ctl-top"><span class="lbl-b">Рифы</span>${stBtn('reef', 'Рифы')}<output id="o_reef"></output></div><div class="seg" id="reefSeg" role="group" aria-label="Рифы"><button type="button" data-reef="0">Полный грот</button><button type="button" data-reef="1">1-й риф</button><button type="button" data-reef="2">2-й риф</button></div>${ihintHtml('reef')}</div>`;
+    if (g.extra === 'goose') html += `<div class="toggle-row" id="gooseRow" hidden><label class="check"><input type="checkbox" id="q_goose"> ${t('goose')}</label></div>`;
+    if (g.extra === 'reef') html += `<div class="ctl"><div class="ctl-top"><span class="lbl-b">${t('reefs')}</span>${stBtn('reef', t('reefs'))}<output id="o_reef"></output></div><div class="seg" id="reefSeg" role="group" aria-label="${esc(t('aria_reefSeg'))}"><button type="button" data-reef="0">${t('reef0')}</button><button type="button" data-reef="1">${t('reef1')}</button><button type="button" data-reef="2">${t('reef2')}</button></div>${ihintHtml('reef')}</div>`;
     html += '</div>';
   }
+  html += `<div class="group"><h3>${t('g_hove')}</h3><div class="hove"><p class="note">${t('hove_note')}</p>` +
+    `<label class="check"><input type="checkbox" id="q_backed"> ${t('q_backed')}</label>` +
+    `<label class="check"><input type="checkbox" id="q_lash"> ${t('q_lash')}</label>` +
+    `<div class="row"><button type="button" class="btn" id="q_heave">${t('q_heave')}</button></div></div></div>`;
   $('#quickGroups').innerHTML = html;
   for (const c of QCTL) {
     const el = $('#q_' + c.key);
     el.value = S.quick[c.key];
-    el.addEventListener('input', () => { S.quick[c.key] = parseFloat(el.value); ui.anim = null; hl(c.hl()); effectTouch(c.name || c.label, c.focus); });
+    el.addEventListener('input', () => { S.quick[c.key] = parseFloat(el.value); ui.anim = null; hl(c.hl()); effectTouch(ctlName(c), c.focus); });
     el.addEventListener('pointerdown', () => hl(c.hl()));
     el.addEventListener('focus', () => hl(c.hl()));
   }
-  $('#q_goose').addEventListener('change', e => { S.quick.goose = e.target.checked; effectTouch('Бабочка', 'trim'); });
-  $$('#reefSeg button').forEach(b => b.addEventListener('click', () => { S.quick.reef = +b.dataset.reef; ui.anim = null; hl('reef1'); effectTouch('Рифы', 'area'); }));
+  $('#q_goose').addEventListener('change', e => { S.quick.goose = e.target.checked; effectTouch(t('eff_goose'), 'trim'); });
+  $$('#reefSeg button').forEach(b => b.addEventListener('click', () => { S.quick.reef = +b.dataset.reef; ui.anim = null; hl('reef1'); effectTouch(t('eff_reef'), 'area'); }));
   $$('#quickGroups .st').forEach(b => b.addEventListener('click', () => { const k = b.id.slice(3); ui.openHints[k] = !ui.openHints[k]; updateCtlStatus(S.D); }));
-  $('#showTargets').addEventListener('change', e => { ui.showTargets = e.target.checked; ui.tgtT = -9; });
+  $('#q_backed').addEventListener('change', e => {
+    const D = S.D;
+    S.quick.jibLock = e.target.checked && D ? sgn(D.awa) : 0;
+    S.quick.goose = false;
+    effectTouch(t('eff_backed'), 'trim');
+  });
+  $('#q_lash').addEventListener('change', e => toggleLash(e.target.checked));
+  $('#q_heave').addEventListener('click', () => {
+    if (!SIM.heaveTo(S)) { toast(t('heave_bad'), 'warn'); return; }
+    toast(t('heave_start'), 'info', 5000);
+    effectTouch(t('eff_heave'), 'all');
+  });
 }
 function syncSliders(force) {
   for (const c of QCTL) {
@@ -223,16 +266,19 @@ function syncSliders(force) {
     $('#o_' + c.key).textContent = c.out(v);
   }
   $$('#reefSeg button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.reef === S.quick.reef)));
-  $('#o_reef').textContent = S.quick.reef ? `${S.quick.reef}-й риф` : 'полный грот';
+  $('#o_reef').textContent = S.quick.reef ? t('o_reef', S.quick.reef) : t('o_reef0');
   const D = S.D, showGoose = D && D.twaAbs > 140;
   $('#gooseRow').hidden = !showGoose && !S.quick.goose;
   $('#q_goose').checked = !!S.quick.goose;
+  $('#q_backed').checked = !!(D && S.quick.jibLock && S.quick.jibLock === sgn(D.awa));
+  syncHelm();
 }
 function updateCtlStatus(D) {
   if (!D) return;
   for (const k in CTL_ITEM) {
     const b = $('#st_' + k); if (!b) continue;
-    const it = itemOf(D, CTL_ITEM[k]), open = !!ui.openHints[k];
+    const c = CTL_ITEM[k], id = D.hoveList ? (c.hove || null) : c.item;
+    const it = itemOf(D, id), open = !!ui.openHints[k];
     setSt(b, it); b.setAttribute('aria-expanded', String(open));
     const box = $('#ih_' + k);
     box.hidden = !open;
@@ -240,24 +286,26 @@ function updateCtlStatus(D) {
   }
 }
 function updateTargets() {
-  if (!ui.showTargets) { if (ui.targets) { ui.targets = null; $$('.tgt').forEach(t => { t.hidden = true; }); } return; }
+  if (!ui.showTargets) { if (ui.targets) { ui.targets = null; $$('.tgt').forEach(x => { x.hidden = true; }); } return; }
   if (S.t - ui.tgtT > 0.5) { ui.targets = SIM.solveTrim(S); ui.tgtT = S.t; }
   const T = ui.targets;
   for (const c of QCTL) {
-    const t = $('#t_' + c.key);
-    t.hidden = false; t.style.left = `${clamp((T[c.key] - c.min) / (c.max - c.min), 0, 1) * 100}%`;
+    const x = $('#t_' + c.key);
+    x.hidden = false; x.style.left = `${clamp((T[c.key] - c.min) / (c.max - c.min), 0, 1) * 100}%`;
   }
 }
+$('#showTargets').addEventListener('change', e => { ui.showTargets = e.target.checked; ui.tgtT = -9; });
 $('#btnSolve').addEventListener('click', () => {
   const T = SIM.solveTrim(S);
-  effectTouch('Правильная настройка', null);
+  effectTouch(t('eff_solve'), null);
+  SIM.setLash(S, false); S.heave = null;
   if (S.mode === 'quick') {
     ui.anim = { from: Object.assign({}, S.quick), to: T, t: 0, dur: 1.4 };
-    S.quick.reef = T.reef; S.quick.goose = T.goose;
-    toast('Паруса выставляются по ветру — посмотрите, что меняется в 3D, колдунчиках и на шкалах.', 'info');
+    S.quick.reef = T.reef; S.quick.goose = T.goose; S.quick.jibLock = 0;
+    toast(t('solve_q'), 'info');
   } else {
     ui.showTargets = true; $('#showTargets').checked = true; ui.tgtT = -9;
-    toast('Зелёные метки на шкалах снастей — правильные значения. Выставьте их стопорами и лебёдками.', 'info', 5500);
+    toast(t('solve_d'), 'info', 5500);
   }
 });
 function stepAnim(dt) {
@@ -269,8 +317,10 @@ function stepAnim(dt) {
 
 /* ---------- оценка ---------- */
 function buildItems() {
-  $('#items').innerHTML = SIM.ITEM_DEFS.map(d => `<button type="button" class="item st-na" data-id="${d.id}" aria-pressed="false"><span class="dot">–</span><span class="nm">${d.name}<small>${d.sub}</small></span></button>`).join('');
+  $('#items').innerHTML = SIM.ITEM_DEFS.map(d => `<button type="button" class="item st-na" data-id="${d.id}" aria-pressed="false"><span class="dot">–</span><span class="nm">${esc(L(d.name))}<small>${esc(L(d.sub))}</small></span></button>`).join('');
   $$('#items .item').forEach(b => b.addEventListener('click', () => { ui.selItem = ui.selItem === b.dataset.id ? null : b.dataset.id; updateScore(S.D); }));
+}
+function initScore() {
   $('#scoreBar').innerHTML = '<i></i>'.repeat(20);
   $('#hintClose').addEventListener('click', () => { ui.selItem = null; if (ui.autoHints) { ui.autoHints = false; $('#autoHints').checked = false; store.set('autoHints', false); } updateScore(S.D); });
   $('#autoHints').checked = ui.autoHints;
@@ -278,7 +328,7 @@ function buildItems() {
   $('#btnTop').addEventListener('click', () => {
     const D = S.D;
     if (D && D.top) { ui.selItem = D.top.id; updateScore(D); }
-    else { ui.selItem = null; toast('Исправлять нечего: все пункты в норме.', 'info'); updateScore(D); }
+    else { ui.selItem = null; toast(t('nothing'), 'info'); updateScore(D); }
   });
 }
 function updateScore(D) {
@@ -288,7 +338,7 @@ function updateScore(D) {
   const bar = $('#scoreBar'), on = r0(sc / 5);
   bar.className = 'segbar' + (sc < 60 ? ' bad' : sc < 85 ? ' warn' : '');
   Array.from(bar.children).forEach((i, k) => i.classList.toggle('on', k < on));
-  $('#scoreSub').textContent = `${D.pos} · ${D.tack > 0 ? 'правый' : 'левый'} галс · ${f1(D.bsp)} уз из ${f1(D.polar)} по поляре`;
+  $('#scoreSub').textContent = t('score_sub', D.pos, t('tack_nom', D.tack), f1(D.bsp), f1(D.polar));
   for (const b of $$('#items .item')) {
     const it = itemOf(D, b.dataset.id);
     b.hidden = !it;
@@ -296,7 +346,7 @@ function updateScore(D) {
     b.className = `item st-${it.status}`;
     b.querySelector('.dot').textContent = ST_SYM[it.status];
     b.setAttribute('aria-pressed', String(ui.selItem === it.id));
-    b.title = `${it.name}: ${ST_TXT[it.status]}`;
+    b.title = `${it.name}: ${stTxt(it.status)}`;
   }
   let id = ui.selItem;
   if (id && !itemOf(D, id)) id = ui.selItem = null;
@@ -306,23 +356,24 @@ function updateScore(D) {
   const it = itemOf(D, id);
   box.hidden = false; box.className = `hint st-${it.status}`;
   $('#hintName').textContent = it.name;
-  $('#hintSt').textContent = ST_TXT[it.status];
+  $('#hintSt').textContent = stTxt(it.status);
   $('#hintDiag').textContent = it.diag || '';
   $('#hintAct').textContent = it.status === 'ok' || it.status === 'na' ? '' : (it.act || '');
 }
 
 /* ---------- приборы ---------- */
 function updateHud(D) {
-  $('#hBsp').innerHTML = `${f1(D.bsp)}<small>уз</small>`;
-  $('#hVmg').innerHTML = D.twaAbs < 90 ? `VMG к ветру <b>${f1(D.vmg)}</b>` : `VMG от ветра <b>${f1(-D.vmg)}</b>`;
+  const kn = `<small>${t('kn')}</small>`;
+  $('#hBsp').innerHTML = `${f1(D.bsp)}${kn}`;
+  $('#hVmg').innerHTML = D.twaAbs < 90 ? t('vmg_up', f1(D.vmg)) : t('vmg_down', f1(-D.vmg));
   $('#hHdg').textContent = deg3(D.hdg);
   $('#hPos').textContent = D.pos;
-  $('#hTws').innerHTML = `${f1(D.tws)}<small>уз</small>`;
-  $('#hTwa').innerHTML = `<b>${r0(D.twaAbs)}°</b> ${D.tack > 0 ? 'пр.' : 'лев.'} галс · с ${deg3(D.twd)}`;
-  $('#hAws').innerHTML = `${f1(D.aws)}<small>уз</small>`;
-  $('#hAwa').innerHTML = `<b>${r0(D.awaAbs)}°</b> ${D.awa >= 0 ? 'справа' : 'слева'}`;
+  $('#hTws').innerHTML = `${f1(D.tws)}${kn}`;
+  $('#hTwa').innerHTML = t('twa_sub', r0(D.twaAbs), D.tack, deg3(D.twd));
+  $('#hAws').innerHTML = `${f1(D.aws)}${kn}`;
+  $('#hAwa').innerHTML = t('awa_sub', r0(D.awaAbs), D.awa >= 0 ? 1 : -1);
   $('#hHeel').textContent = `${r0(Math.abs(D.heel))}°`;
-  $('#hRud').innerHTML = D.rudder > 0.7 ? `руль <b>${r0(D.rudder)}°</b> к ветру` : D.rudder < -0.7 ? `руль <b>${r0(-D.rudder)}°</b> от ветра` : 'руль нейтрален';
+  $('#hRud').innerHTML = S.helm.lash ? t('rud_lashed') : D.rudder > 0.7 ? t('rud_weather', r0(D.rudder)) : D.rudder < -0.7 ? t('rud_lee', r0(-D.rudder)) : t('rud_neutral');
 }
 const sgnTxt = (v, d, u) => `${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}${u || ''}`;
 function stripCell(id, txt, cls, hot) {
@@ -338,26 +389,26 @@ function updateStrip(D) {
   sEl.textContent = `${sc}%`; sEl.className = sc >= 85 ? 'ok' : sc >= 60 ? 'warn' : 'bad';
   const on = effActive();
   if (on) {
-    const s = eff.snap, same = 'без изм.';
+    const s = eff.snap, same = t('s_same');
     const dB = D.bsp - s.bsp, dH = Math.abs(D.heel) - s.heel, dT = D.twaAbs - s.twa, dA = D.awaAbs - s.awa, dS = (D.score - s.score) * 100;
-    const b = Math.abs(dB) >= 0.05, h = Math.abs(dH) >= 0.5, t = Math.abs(dT) >= 0.5, a = Math.abs(dA) >= 0.5, q = Math.abs(dS) >= 0.5;
+    const b = Math.abs(dB) >= 0.05, h = Math.abs(dH) >= 0.5, tw = Math.abs(dT) >= 0.5, a = Math.abs(dA) >= 0.5, q = Math.abs(dS) >= 0.5;
     stripCell('Bsp', b ? sgnTxt(dB, 1) : same, b ? (dB > 0 ? 'good' : 'bad') : '', b);
     stripCell('Heel', h ? sgnTxt(dH, 0, '°') : same, h ? (dH > 0 && Math.abs(D.heel) > 20 ? 'bad' : 'chg') : '', h);
-    stripCell('Twa', t ? sgnTxt(dT, 0, '°') : same, t ? 'chg' : '', t);
+    stripCell('Twa', tw ? sgnTxt(dT, 0, '°') : same, tw ? 'chg' : '', tw);
     stripCell('Awa', a ? sgnTxt(dA, 0, '°') : same, a ? 'chg' : '', a);
     stripCell('Score', q ? sgnTxt(dS, 0, '%') : same, q ? (dS > 0 ? 'good' : 'bad') : '', q);
   } else {
-    stripCell('Bsp', `из ${f1(D.polar)}`, '', false);
-    stripCell('Heel', `руль ${r0(Math.max(0, D.rudder))}°`, '', false);
-    stripCell('Twa', `${f1(D.tws)} уз`, '', false);
-    stripCell('Awa', `${f1(D.aws)} уз`, '', false);
-    stripCell('Score', sc >= 85 ? 'хорошо' : sc >= 60 ? 'средне' : 'плохо', '', false);
+    stripCell('Bsp', t('s_of', f1(D.polar)), '', false);
+    stripCell('Heel', S.helm.lash ? t('s_lashed') : t('s_helm', r0(Math.max(0, D.rudder))), '', false);
+    stripCell('Twa', t('s_kn', f1(D.tws)), '', false);
+    stripCell('Awa', t('s_kn', f1(D.aws)), '', false);
+    stripCell('Score', sc >= 85 ? t('s_good') : sc >= 60 ? t('s_fair') : t('s_poor'), '', false);
   }
   $('#effChip').hidden = !on;
   if (on) {
     $('#effName').textContent = eff.name;
     const tr = D.bspTarget - D.bsp;
-    $('#effTrend').textContent = Math.abs(tr) > 0.15 ? (tr > 0 ? 'скорость растёт…' : 'скорость падает…') : 'скорость установилась';
+    $('#effTrend').textContent = Math.abs(tr) > 0.15 ? (tr > 0 ? t('trend_up') : t('trend_down')) : t('trend_flat');
   }
 }
 function fitCanvas(cv) {
@@ -401,11 +452,10 @@ function drawWindDial(D) {
   needle(D.twa, '#7fd0ff', R * 0.8, Math.max(2, R * 0.035));
   needle(D.awa, '#ff6fc0', R * 0.82, Math.max(3, R * 0.06));
   g.fillStyle = '#eaf3f6'; g.font = `700 ${R * 0.27}px ${FONT}`; g.fillText(`${r0(D.awaAbs)}°`, cx, cy - R * 0.03);
-  g.fillStyle = 'rgba(234,243,246,0.72)'; g.font = `600 ${R * 0.13}px ${FONT}`; g.fillText(`ист. ${r0(D.twaAbs)}°`, cx, cy + R * 0.2);
+  g.fillStyle = 'rgba(234,243,246,0.72)'; g.font = `600 ${R * 0.13}px ${FONT}`; g.fillText(t('dial_true', r0(D.twaAbs)), cx, cy + R * 0.2);
 }
 
 /* ---------- колдунчики (2D-табло) ---------- */
-const TELL_TXT = { ok: 'ровно', wind: 'трепещут наветренные', luff: 'заполаскивает', lee: 'срыв подветренных', stall: 'срыв потока', limp: 'в тени грота', aback: 'на ветру', flog: 'полощет', pole: 'бабочка' };
 const TELL_MODE = { ok: ['stream', 'stream'], wind: ['flutter', 'stream'], luff: ['whip', 'flutter'], lee: ['stream', 'lift'], stall: ['stream', 'curl'], limp: ['hang', 'hang'], aback: ['whip', 'whip'], flog: ['whip', 'whip'], pole: ['curl', 'curl'] };
 const RIB = { stream: [0, 0.07, 7], flutter: [-0.95, 0.55, 17], whip: [-0.5, 1.2, 25], lift: [-1.05, 0.3, 5], curl: [-2.3, 0.35, 3], hang: [1.45, 0.1, 2] };
 let tellT = 0;
@@ -434,13 +484,15 @@ function drawTellFull(g, w, h, D) {
   g.save(); g.scale(w / 236, h / 150);
   g.textAlign = 'left'; g.textBaseline = 'middle';
   g.font = `700 10px ${FONT}`; g.fillStyle = '#93b2c0';
-  g.fillText('СТАКСЕЛЬ', 4, 8); g.fillText('ГРОТ', 168, 8);
-  g.font = `600 10px ${FONT}`; g.fillText('наветр.', 52, 23); g.fillText('подветр.', 98, 23);
+  g.fillText(t('tt_genoa'), 4, 8); g.fillText(t('tt_main'), 168, 8);
+  g.font = `600 10px ${FONT}`; g.textAlign = 'center';
+  g.fillText(t('tt_win'), 68, 23); g.fillText(t('tt_lee'), 114, 23);
+  g.textAlign = 'left';
   const [winCol, leeCol] = jibCols(D);
-  [['верх', 2], ['сред.', 1], ['низ', 0]].forEach(([name, i], r) => {
+  [['tt_top', 2], ['tt_mid', 1], ['tt_low', 0]].forEach(([name, i], r) => {
     const y = 44 + r * 33;
-    g.fillStyle = 'rgba(234,243,246,0.86)'; g.font = `600 11px ${FONT}`; g.fillText(name, 4, y);
-    if (S.rig.furl >= 0.97) { g.fillStyle = '#93b2c0'; g.fillText('закручен', 52, y); return; }
+    g.fillStyle = 'rgba(234,243,246,0.86)'; g.font = `600 11px ${FONT}`; g.fillText(t(name), 4, y);
+    if (S.rig.furl >= 0.97) { g.fillStyle = '#93b2c0'; g.fillText(t('tt_furled'), 52, y); return; }
     const st = D.tell.jib[i], m = TELL_MODE[st] || TELL_MODE.ok;
     g.strokeStyle = 'rgba(234,243,246,0.3)'; g.lineWidth = 1.5;
     g.beginPath(); g.moveTo(50, y - 9); g.lineTo(50, y + 9); g.moveTo(96, y - 9); g.lineTo(96, y + 9); g.stroke();
@@ -463,9 +515,10 @@ function drawTellCompact(g, w, h, D) {
   g.save(); g.scale(w / 140, h / 66);
   g.textAlign = 'left'; g.textBaseline = 'middle';
   g.font = `600 8.5px ${FONT}`; g.fillStyle = '#93b2c0';
-  g.fillText('наветр.', 6, 6); g.fillText('подветр.', 40, 6); g.fillText('грот', 104, 6);
+  g.textAlign = 'center'; g.fillText(t('tt_win_s'), 20, 6); g.fillText(t('tt_lee_s'), 54, 6);
+  g.textAlign = 'left'; g.fillText(t('tt_main_s'), 104, 6);
   const [winCol, leeCol] = jibCols(D);
-  if (S.rig.furl >= 0.97) { g.fillStyle = '#93b2c0'; g.font = `600 10px ${FONT}`; g.fillText('стаксель закручен', 6, 36); }
+  if (S.rig.furl >= 0.97) { g.fillStyle = '#93b2c0'; g.font = `600 10px ${FONT}`; g.fillText(t('tt_furled_long'), 6, 36); }
   else [2, 1, 0].forEach((i, r) => {
     const y = 21 + r * 16, st = D.tell.jib[i], m = TELL_MODE[st] || TELL_MODE.ok;
     g.strokeStyle = 'rgba(234,243,246,0.3)'; g.lineWidth = 1.2;
@@ -522,9 +575,9 @@ function applyStageFrac(f) {
 }
 
 /* ---------- ветер и курс ---------- */
-const BFT = [[1, 'штиль'], [4, '1 балл, тихий'], [7, '2 балла, лёгкий'], [11, '3 балла, слабый'], [17, '4 балла, умеренный'], [22, '5 баллов, свежий'], [28, '6 баллов, сильный'], [34, '7 баллов, крепкий'], [99, '8 баллов, очень крепкий']];
-const beaufort = kn => BFT.find(b => kn < b[0])[1];
-function buildWind() {
+const BFT_LIM = [1, 4, 7, 11, 17, 22, 28, 34, 99];
+const beaufort = kn => t('bft')[BFT_LIM.findIndex(x => kn < x)];
+function buildWindDial() {
   const svg = $('#dirDial');
   let ticks = '';
   for (let a = 0; a < 360; a += 10) {
@@ -532,31 +585,36 @@ function buildWind() {
     ticks += `<line x1="${(75 + r1 * s).toFixed(1)}" y1="${(75 - r1 * c).toFixed(1)}" x2="${(75 + r2 * s).toFixed(1)}" y2="${(75 - r2 * c).toFixed(1)}" stroke="var(--ink-3)" stroke-width="${big ? 1.5 : 1}"/>`;
   }
   svg.innerHTML = `<circle cx="75" cy="75" r="69" fill="var(--surface-2)" stroke="var(--line)"/>${ticks}` +
-    '<text x="75" y="26" text-anchor="middle">С</text><text x="126" y="79" text-anchor="middle">В</text><text x="75" y="133" text-anchor="middle">Ю</text><text x="24" y="79" text-anchor="middle">З</text>' +
+    `<text x="75" y="26" text-anchor="middle">${t('dial_n')}</text><text x="126" y="79" text-anchor="middle">${t('dial_e')}</text><text x="75" y="133" text-anchor="middle">${t('dial_s')}</text><text x="24" y="79" text-anchor="middle">${t('dial_w')}</text>` +
     '<g id="ddBoat"><path d="M75 50 C 83 60 84 84 81 100 L 69 100 C 66 84 67 60 75 50 Z" fill="var(--ink)" opacity="0.8"/></g>' +
     '<g id="ddWind"><line x1="75" y1="12" x2="75" y2="42" stroke="#2f7fd6" stroke-width="4" stroke-linecap="round"/><path d="M75 52 L66 38 L84 38 Z" fill="#2f7fd6"/><circle cx="75" cy="12" r="8" fill="#2f7fd6"/></g>';
+}
+function buildShift() {
+  $('#shiftBtns').innerHTML = [-20, -10, 10, 20].map(d => `<button type="button" class="btn" data-shift="${d}">${d > 0 ? '+' : '−'}${Math.abs(d)}°<small id="sh_${d}"></small></button>`).join('');
+  $$('#shiftBtns [data-shift]').forEach(b => b.addEventListener('click', () => {
+    const d = +b.dataset.shift, before = S.D ? S.D.twaAbs : 0;
+    SIM.setWind(S, { shift: d, dur: 3 });
+    const after = Math.abs(wrap180(S.wind.baseTwd + d - S.boat.hdg));
+    const text = t('shift_toast', after < before, Math.abs(d));
+    toast(text, 'info'); effectTouch(text, null);
+  }));
+}
+function initWind() {
+  const svg = $('#dirDial');
   const ang = e => { const r = svg.getBoundingClientRect(); const x = e.clientX - r.left - r.width / 2, y = e.clientY - r.top - r.height / 2; return r0(wrap360(Math.atan2(x, -y) / D2R)); };
-  const setDir = e => { SIM.setWind(S, { twd: ang(e) }); effectTouch('Направление ветра', null); };
+  const setDir = e => { SIM.setWind(S, { twd: ang(e) }); effectTouch(t('eff_dir'), null); };
   svg.addEventListener('pointerdown', e => { try { svg.setPointerCapture(e.pointerId); } catch (_) { /* нет захвата */ } ui.dialDrag = true; setDir(e); });
   svg.addEventListener('pointermove', e => { if (ui.dialDrag) setDir(e); });
   const stop = () => { ui.dialDrag = false; };
   svg.addEventListener('pointerup', stop); svg.addEventListener('pointercancel', stop);
   svg.addEventListener('keydown', e => {
     const d = (e.key === 'ArrowRight' || e.key === 'ArrowUp') ? 5 : (e.key === 'ArrowLeft' || e.key === 'ArrowDown') ? -5 : 0;
-    if (d) { e.preventDefault(); SIM.setWind(S, { twd: S.wind.baseTwd + d }); effectTouch('Направление ветра', null); }
+    if (d) { e.preventDefault(); SIM.setWind(S, { twd: S.wind.baseTwd + d }); effectTouch(t('eff_dir'), null); }
   });
   $('#twsR').value = S.wind.baseTws;
-  $('#twsR').addEventListener('input', e => { SIM.setWind(S, { tws: parseFloat(e.target.value) }); effectTouch('Сила ветра', null); });
+  $('#twsR').addEventListener('input', e => { SIM.setWind(S, { tws: parseFloat(e.target.value) }); effectTouch(t('eff_speed'), null); });
   $('#gusts').addEventListener('change', e => SIM.setWind(S, { gusts: e.target.checked }));
-  $('#hdgR').addEventListener('input', e => { S.helm.auto = null; S.boat.hdg = parseFloat(e.target.value); effectTouch('Руль', null); });
-  $('#shiftBtns').innerHTML = [-20, -10, 10, 20].map(d => `<button type="button" class="btn" data-shift="${d}">${d > 0 ? '+' : '−'}${Math.abs(d)}°<small id="sh_${d}"></small></button>`).join('');
-  $$('#shiftBtns [data-shift]').forEach(b => b.addEventListener('click', () => {
-    const d = +b.dataset.shift, before = S.D ? S.D.twaAbs : 0;
-    SIM.setWind(S, { shift: d, dur: 3 });
-    const after = Math.abs(wrap180(S.wind.baseTwd + d - S.boat.hdg));
-    const text = `Ветер ${after < before ? 'заходит' : 'отходит'} на ${Math.abs(d)}°`;
-    toast(text, 'info'); effectTouch(text, null);
-  }));
+  $('#hdgR').addEventListener('input', e => { SIM.setLash(S, false); S.helm.auto = null; S.heave = null; S.boat.hdg = parseFloat(e.target.value); effectTouch(t('eff_helm'), null); });
   const rnd = () => { SIM.randomEvent(S); };
   $('#btnRandom').addEventListener('click', rnd);
   $('#btnRandom2').addEventListener('click', rnd);
@@ -564,7 +622,7 @@ function buildWind() {
 function updateWind(D) {
   const W = S.wind;
   if (document.activeElement !== $('#twsR')) $('#twsR').value = W.baseTws;
-  $('#twsOut').textContent = `${f1(W.baseTws)} уз` + (W.gusts ? ` · сейчас ${f1(D.tws)}` : '');
+  $('#twsOut').textContent = t('tws_out', f1(W.baseTws)) + (W.gusts ? t('tws_now', f1(D.tws)) : '');
   $('#bft').textContent = beaufort(W.baseTws);
   $('#twdOut').textContent = deg3(W.baseTwd);
   $('#dirDial').setAttribute('aria-valuenow', String(r0(W.baseTwd)));
@@ -575,9 +633,9 @@ function updateWind(D) {
   $('#ddBoat').setAttribute('transform', `rotate(${S.boat.hdg.toFixed(1)} 75 75)`);
   for (const d of [-20, -10, 10, 20]) {
     const after = Math.abs(wrap180(W.baseTwd + d - S.boat.hdg));
-    $('#sh_' + d).textContent = after < D.twaAbs ? 'заход' : 'отход';
+    $('#sh_' + d).textContent = after < D.twaAbs ? t('shift_header') : t('shift_lift');
   }
-  $('#shiftNote').textContent = `Сейчас ${D.tack > 0 ? 'правый' : 'левый'} галс, ${r0(D.twaAbs)}° к ветру. Заход — ветер смещается к носу, отход — к корме.`;
+  $('#shiftNote').textContent = t('shift_note', t('tack_nom', D.tack), r0(D.twaAbs));
 }
 
 /* ---------- палуба: схема ---------- */
@@ -587,6 +645,7 @@ const DK = {
   track: { P: 64, S: 296 }
 };
 const DECK_ITEM = { halyard: 'luff', reef1: 'reef', reef2: 'reef', vang: 'mainTwist', main: 'mainAoA', outhaul: 'depth', furl: 'furl', sheetP: 'jibAoA', sheetS: 'jibAoA', car: 'jibTwist', trav: 'mainAoA', bs: 'depth' };
+const DECK_HOVE = { sheetP: 'hvJib', sheetS: 'hvJib', main: 'hvMain', trav: 'hvMain' };
 const DECK_FOCUS = { halyard: 'shape', reef1: 'area', reef2: 'area', vang: 'twist', main: 'trim', outhaul: 'shape', furl: 'area', sheetP: 'trim', sheetS: 'trim', car: 'jibTwist', trav: 'trim', bs: 'shape' };
 const selKey = sel => (sel.kind === 'line' ? sel.key : sel.kind);
 function buildDeck() {
@@ -596,40 +655,43 @@ function buildDeck() {
   s += '<rect x="94" y="220" width="172" height="122" rx="12" fill="url(#teakP)" stroke="var(--deck-line)"/>';
   s += '<rect x="94" y="228" width="24" height="66" rx="5" fill="var(--teak)" opacity="0.45"/><rect x="242" y="228" width="24" height="66" rx="5" fill="var(--teak)" opacity="0.45"/>';
   s += '<rect x="166" y="232" width="28" height="44" rx="5" fill="var(--teak)" opacity="0.6"/>';
-  s += '<rect x="164" y="186" width="32" height="24" rx="3" fill="var(--ink-3)" opacity="0.55"/><text x="180" y="201" font-size="9" text-anchor="middle" style="fill:var(--surface)">вход</text>';
+  s += `<rect x="164" y="186" width="32" height="24" rx="3" fill="var(--ink-3)" opacity="0.55"/><text x="180" y="201" font-size="9" text-anchor="middle" style="fill:var(--surface)">${t('dk_hatch')}</text>`;
   for (const [x, y] of [[142, 304], [218, 304]]) s += `<circle cx="${x}" cy="${y}" r="18" fill="none" stroke="var(--ink-2)" stroke-width="2.5"/><line x1="${x - 18}" y1="${y}" x2="${x + 18}" y2="${y}" stroke="var(--ink-3)"/><line x1="${x}" y1="${y - 18}" x2="${x}" y2="${y + 18}" stroke="var(--ink-3)"/>`;
   s += '<path id="dkSheet_P" d="" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path id="dkSheet_S" d="" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
-  s += '<circle cx="180" cy="20" r="9" fill="var(--surface-3)" stroke="var(--ink-2)" stroke-width="1.5"/><text x="194" y="16" font-size="10">мачта</text>';
+  s += `<circle cx="180" cy="20" r="9" fill="var(--surface-3)" stroke="var(--ink-2)" stroke-width="1.5"/><text x="194" y="16" font-size="10">${t('dk_mast')}</text>`;
   for (const k of SIM.CLUTCH_LINES) s += `<path d="M180 28 L${DK.cx[k]} 104" stroke="${LINES[k].color}" stroke-width="1.6" fill="none" opacity="0.7"/>`;
-  s += '<g class="hit" data-kind="trav" role="button" tabindex="0" aria-label="Погон гика-шкота"><rect x="104" y="34" width="152" height="26" fill="transparent"/><line class="body" x1="112" y1="48" x2="248" y2="48" stroke="var(--ink-2)" stroke-width="4" stroke-linecap="round"/><rect id="dkTrav" x="171" y="42" width="18" height="12" rx="3" fill="var(--ink)"/><text x="104" y="40" font-size="10">погон</text></g>';
+  s += `<g class="hit" data-kind="trav" role="button" tabindex="0" aria-label="${esc(t('dk_trav_aria'))}"><rect x="104" y="34" width="152" height="26" fill="transparent"/><line class="body" x1="112" y1="48" x2="248" y2="48" stroke="var(--ink-2)" stroke-width="4" stroke-linecap="round"/><rect id="dkTrav" x="171" y="42" width="18" height="12" rx="3" fill="var(--ink)"/><text x="104" y="40" font-size="10">${t('dk_trav')}</text></g>`;
   for (const k of SIM.CLUTCH_LINES) {
-    const x = DK.cx[k], L = LINES[k];
-    s += `<g class="hit" data-kind="line" data-key="${k}" role="button" tabindex="0" aria-label="Стопор: ${L.name}"><rect x="${x - 9}" y="56" width="18" height="82" fill="transparent"/>` +
-      `<text x="${x + 3.5}" y="99" font-size="10.5" transform="rotate(-90 ${x + 3.5} 99)" style="paint-order:stroke;stroke:var(--surface);stroke-width:3px">${L.tag}</text>` +
+    const x = DK.cx[k], Ln = LINES[k];
+    s += `<g class="hit" data-kind="line" data-key="${k}" role="button" tabindex="0" aria-label="${esc(t('dk_clutch_aria', Ln.name))}"><rect x="${x - 9}" y="56" width="18" height="82" fill="transparent"/>` +
+      `<text x="${x + 3.5}" y="99" font-size="10.5" transform="rotate(-90 ${x + 3.5} 99)" style="paint-order:stroke;stroke:var(--surface);stroke-width:3px">${esc(Ln.tag)}</text>` +
       `<rect class="body" id="dkCl_${k}" x="${x - 7.5}" y="104" width="15" height="30" rx="3" fill="var(--surface-3)" stroke="var(--ink-2)"/>` +
-      `<rect x="${x - 5.5}" y="106" width="11" height="5" rx="1.5" fill="${L.color}"/><rect id="dkLev_${k}" x="${x - 5}" y="116" width="10" height="14" rx="2" fill="var(--ink)"/></g>`;
+      `<rect x="${x - 5.5}" y="106" width="11" height="5" rx="1.5" fill="${Ln.color}"/><rect id="dkLev_${k}" x="${x - 5}" y="116" width="10" height="14" rx="2" fill="var(--ink)"/></g>`;
   }
   for (const k of SIM.CLUTCH_LINES) s += `<path id="dkTail_${k}" d="" stroke="${LINES[k].color}" stroke-width="3" fill="none" stroke-linecap="round"/>`;
   for (const w of ['RP', 'RS', 'PP', 'PS']) {
     const [x, y] = DK.winch[w], prim = w[0] === 'P';
     const kind = prim ? 'line' : 'winch', key = w === 'PP' ? 'sheetP' : w === 'PS' ? 'sheetS' : w;
-    s += `<g class="hit" data-kind="${kind}" data-key="${key}" role="button" tabindex="0" aria-label="${SIM.WINCH_NAMES[w]}"><circle cx="${x}" cy="${y}" r="21" fill="transparent"/>` +
+    s += `<g class="hit" data-kind="${kind}" data-key="${key}" role="button" tabindex="0" aria-label="${esc(SIM.winchName(w))}"><circle cx="${x}" cy="${y}" r="21" fill="transparent"/>` +
       `<circle id="dkRing_${w}" cx="${x}" cy="${y}" r="15.5" fill="none" stroke="transparent" stroke-width="4"/>` +
       `<circle class="body" cx="${x}" cy="${y}" r="12" fill="var(--surface-3)" stroke="var(--ink-2)" stroke-width="1.5"/><circle cx="${x}" cy="${y}" r="4.5" fill="var(--ink-2)"/>` +
       `<text id="dkWl_${w}" x="${x}" y="${y + 29}" font-size="10" text-anchor="middle"></text></g>`;
   }
   for (const sd of ['P', 'S']) {
     const x = DK.track[sd];
-    s += `<g class="hit" data-kind="car" data-key="${sd}" role="button" tabindex="0" aria-label="Каретка стакселя, ${sd === 'P' ? 'левый' : 'правый'} борт"><rect x="${x - 13}" y="50" width="26" height="130" fill="transparent"/>` +
+    s += `<g class="hit" data-kind="car" data-key="${sd}" role="button" tabindex="0" aria-label="${esc(t('dk_car_aria', sd === 'P' ? -1 : 1))}"><rect x="${x - 13}" y="50" width="26" height="130" fill="transparent"/>` +
       `<line class="body" x1="${x}" y1="60" x2="${x}" y2="170" stroke="var(--ink-2)" stroke-width="3" stroke-linecap="round"/>` +
       `<rect id="dkCar_${sd}" x="${x - 6}" y="100" width="12" height="16" rx="2.5" fill="var(--ink)"/></g>`;
   }
-  s += '<g class="hit" data-kind="bs" role="button" tabindex="0" aria-label="Ахтерштаг"><rect x="150" y="322" width="110" height="30" fill="transparent"/><line x1="180" y1="324" x2="180" y2="334" stroke="var(--ink-2)" stroke-width="1.5"/><line x1="180" y1="334" x2="162" y2="349" stroke="var(--ink-2)" stroke-width="1.5"/><line x1="180" y1="334" x2="198" y2="349" stroke="var(--ink-2)" stroke-width="1.5"/><circle class="body" cx="180" cy="334" r="5" fill="var(--surface-3)" stroke="var(--ink-2)"/><text x="204" y="345" font-size="10">ахтерштаг</text></g>';
-  s += '<text x="20" y="176" font-size="11" text-anchor="middle" transform="rotate(-90 20 176)" style="fill:var(--port);font-weight:700;letter-spacing:.08em">ЛЕВЫЙ БОРТ</text>';
-  s += '<text x="340" y="176" font-size="11" text-anchor="middle" transform="rotate(90 340 176)" style="fill:var(--stbd);font-weight:700;letter-spacing:.08em">ПРАВЫЙ БОРТ</text>';
-  s += '<text x="8" y="14" font-size="10">↑ нос</text>';
+  s += `<g class="hit" data-kind="bs" role="button" tabindex="0" aria-label="${esc(t('dk_bs_aria'))}"><rect x="150" y="322" width="110" height="30" fill="transparent"/><line x1="180" y1="324" x2="180" y2="334" stroke="var(--ink-2)" stroke-width="1.5"/><line x1="180" y1="334" x2="162" y2="349" stroke="var(--ink-2)" stroke-width="1.5"/><line x1="180" y1="334" x2="198" y2="349" stroke="var(--ink-2)" stroke-width="1.5"/><circle class="body" cx="180" cy="334" r="5" fill="var(--surface-3)" stroke="var(--ink-2)"/><text x="204" y="345" font-size="10">${t('dk_bs')}</text></g>`;
+  s += `<text x="20" y="176" font-size="11" text-anchor="middle" transform="rotate(-90 20 176)" style="fill:var(--port);font-weight:700;letter-spacing:.08em">${t('dk_port')}</text>`;
+  s += `<text x="340" y="176" font-size="11" text-anchor="middle" transform="rotate(90 340 176)" style="fill:var(--stbd);font-weight:700;letter-spacing:.08em">${t('dk_stbd')}</text>`;
+  s += `<text x="8" y="14" font-size="10">${t('dk_bow')}</text>`;
+  $('#deckSvg').innerHTML = s;
+  markSel();
+}
+function initDeck() {
   const svg = $('#deckSvg');
-  svg.innerHTML = s;
   svg.addEventListener('click', e => { const g = e.target.closest('.hit'); if (g) select(g.dataset.kind, g.dataset.key || ''); });
   svg.addEventListener('keydown', e => { if (e.key !== 'Enter' && e.key !== ' ') return; const g = e.target.closest('.hit'); if (g) { e.preventDefault(); select(g.dataset.kind, g.dataset.key || ''); } });
 }
@@ -647,8 +709,8 @@ function updateDeck() {
   for (const w of ['RP', 'RS', 'PP', 'PS']) {
     const k = d.winch[w], ring = $('#dkRing_' + w), lbl = $('#dkWl_' + w);
     ring.setAttribute('stroke', k ? LINES[k].color : 'transparent');
-    if (w[0] === 'R') lbl.textContent = k ? LINES[k].tag : 'свободна';
-    else { const sk = w === 'PP' ? 'sheetP' : 'sheetS'; lbl.textContent = d.winch[w] ? (D && D.jib.bind && D.jib.ctrl === (w === 'PP' ? -1 : 1) ? 'рабочий шкот' : 'ленивый шкот') : 'шкот снят'; if (d.running[sk]) lbl.textContent = 'уходит!'; }
+    if (w[0] === 'R') lbl.textContent = k ? LINES[k].tag : t('w_free');
+    else { const sk = w === 'PP' ? 'sheetP' : 'sheetS'; lbl.textContent = d.winch[w] ? (D && D.jib.bind && D.jib.ctrl === (w === 'PP' ? -1 : 1) ? t('w_working') : t('w_lazy')) : t('w_off'); if (d.running[sk]) lbl.textContent = t('w_running'); }
   }
   for (const sd of ['P', 'S']) {
     const c = sd === 'P' ? R.carP : R.carS;
@@ -667,11 +729,14 @@ function updateDeck() {
     path.setAttribute('opacity', d.winch[sd === 'P' ? 'PP' : 'PS'] ? 1 : 0.45);
   }
 }
-const loadTxt = v => (v < 0.12 ? 'низкая' : v < 0.45 ? 'средняя' : 'высокая');
+const loadTxt = v => (v < 0.12 ? t('load_low') : v < 0.45 ? t('load_mid') : t('load_high'));
+function markSel() {
+  $$('#deckSvg .hit').forEach(g => g.classList.toggle('sel', !!ui.sel && g.dataset.kind === ui.sel.kind && (g.dataset.key || '') === (ui.sel.key || '')));
+}
 function select(kind, key) {
   ui.sel = kind ? { kind, key } : null;
   ui.selHint = false;
-  $$('#deckSvg .hit').forEach(g => g.classList.toggle('sel', !!ui.sel && g.dataset.kind === kind && (g.dataset.key || '') === (key || '')));
+  markSel();
   ui.selSig = '';
   renderSel();
   let h = null;
@@ -682,47 +747,48 @@ function select(kind, key) {
   hl(h);
 }
 function holdBtn(id, hold, name) { const el = $('#' + id); if (!el) return; holdable(el, () => { S.deck.hold = hold; effectTouch(name, null); }, () => { SIM.deckRelease(S); }); }
-const SG_DOT = '<button type="button" class="st st-na" id="sgSt" aria-expanded="false" aria-controls="sgHint" title="Оценка этой настройки. Нажмите — подсказка">–</button>';
+const SG_DOT = () => `<button type="button" class="st st-na" id="sgSt" aria-expanded="false" aria-controls="sgHint">–</button>`;
 const SG_HINT = '<div class="ihint" id="sgHint" hidden><div class="ih-h"><b></b><span></span></div><p class="diag"></p><p class="act"></p></div>';
 function renderSel() {
   const host = $('#selCard'), sel = ui.sel;
-  if (!sel) { host.innerHTML = '<p class="note">Ничего не выбрано. Нажмите на стопор в пианино, лебёдку, каретку стакселя, погон или ахтерштаг.</p>'; return; }
+  if (!sel) { host.innerHTML = `<p class="note">${t('sel_none')}</p>`; return; }
   const gaugeHtml = '<div><div class="gval"><span id="sgLabel"></span><b id="sgVal"></b></div><div class="gauge" id="sgBar"><i></i></div></div><div class="chips" id="sgChips"></div><p class="warnline" id="sgWarn" hidden></p>';
   if (sel.kind === 'line') {
-    const L = LINES[sel.key], prim = !!L.primary, side = prim ? (L.primary === 'P' ? -1 : 1) : 0;
-    const where = prim ? `основная лебёдка ${L.primary === 'P' ? 'левого' : 'правого'} борта` : `${L.bank === 'P' ? 'левое' : 'правое'} пианино · ${SIM.WINCH_NAMES[SIM.winchFor(sel.key)]}`;
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:${L.color}"></span><h4>${L.name}</h4>${SG_DOT}<span class="where">${where}</span></div><p class="about">${L.about}</p>${gaugeHtml}${SG_HINT}` +
+    const Ln = LINES[sel.key], prim = !!Ln.primary, side = prim ? (Ln.primary === 'P' ? -1 : 1) : 0;
+    const where = prim ? t('where_prim', side) : t('where_clutch', Ln.bank, SIM.winchName(SIM.winchFor(sel.key)));
+    host.innerHTML = `<div class="sh"><span class="sw" style="background:${Ln.color}"></span><h4>${esc(Ln.name)}</h4>${SG_DOT()}<span class="where">${esc(where)}</span></div><p class="about">${esc(Ln.about)}</p>${gaugeHtml}${SG_HINT}` +
       `<div class="actrow"><div class="acts">${prim ? '' : '<button type="button" class="btn" id="sbClutch"></button>'}<button type="button" class="btn" id="sbWinch"></button>${prim ? '<button type="button" class="btn" id="sbPole"></button>' : ''}</div>` +
-      '<div class="acts"><button type="button" class="btn hold" id="sbPull">⟳ Выбирать</button><button type="button" class="btn hold" id="sbEase">⟲ Травить</button></div></div>';
+      `<div class="acts"><button type="button" class="btn hold" id="sbPull">${t('b_pull')}</button><button type="button" class="btn hold" id="sbEase">${t('b_ease')}</button></div></div>`;
     if (!prim) $('#sbClutch').addEventListener('click', () => SIM.deckToggleClutch(S, sel.key));
     $('#sbWinch').addEventListener('click', () => SIM.deckToggleWinch(S, sel.key));
-    if (prim) $('#sbPole').addEventListener('click', () => { if (SIM.deckSetPole(S, S.rig.pole === side ? 0 : side)) effectTouch('Выносной гик', null); });
-    holdBtn('sbPull', { kind: 'line', line: sel.key, dir: 1 }, L.short);
-    holdBtn('sbEase', { kind: 'line', line: sel.key, dir: -1 }, L.short);
+    if (prim) $('#sbPole').addEventListener('click', () => { if (SIM.deckSetPole(S, S.rig.pole === side ? 0 : side)) effectTouch(t('eff_pole'), null); });
+    holdBtn('sbPull', { kind: 'line', line: sel.key, dir: 1 }, Ln.short);
+    holdBtn('sbEase', { kind: 'line', line: sel.key, dir: -1 }, Ln.short);
   } else if (sel.kind === 'car') {
-    const nm = sel.key === 'P' ? 'левый' : 'правый';
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink)"></span><h4>Каретка стакселя, ${nm} борт</h4>${SG_DOT}<span class="where">погон на палубе</span></div>` +
-      '<p class="about">Задаёт, куда тянет шкот. Вперёд — шкот тянет шкаторину вниз, верх стакселя закрывается. Назад — тянет вдоль нижней шкаторины, верх открывается. Под нагрузкой не двигается.</p>' + gaugeHtml + SG_HINT +
-      '<div class="acts"><button type="button" class="btn hold" id="sbA">▲ Вперёд</button><button type="button" class="btn hold" id="sbB">▼ Назад</button></div>';
-    holdBtn('sbA', { kind: 'car', side: sel.key, dir: -1 }, 'Каретка стакселя'); holdBtn('sbB', { kind: 'car', side: sel.key, dir: 1 }, 'Каретка стакселя');
+    const sd = sel.key === 'P' ? -1 : 1;
+    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink)"></span><h4>${t('car_title', sd)}</h4>${SG_DOT()}<span class="where">${t('car_where')}</span></div>` +
+      `<p class="about">${t('car_about')}</p>${gaugeHtml}${SG_HINT}` +
+      `<div class="acts"><button type="button" class="btn hold" id="sbA">${t('b_fwd')}</button><button type="button" class="btn hold" id="sbB">${t('b_aft')}</button></div>`;
+    holdBtn('sbA', { kind: 'car', side: sel.key, dir: -1 }, t('eff_car')); holdBtn('sbB', { kind: 'car', side: sel.key, dir: 1 }, t('eff_car'));
   } else if (sel.kind === 'trav') {
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:#7a5a3a"></span><h4>Погон гика-шкота</h4>${SG_DOT}<span class="where">каретка на рубке</span></div>` +
-      '<p class="about">Сдвигает гик к ветру или под ветер, почти не меняя натяжения задней шкаторины. Под ветер каретка уходит сама, на ветер под нагрузкой тянется тяжело.</p>' + gaugeHtml + SG_HINT +
-      '<div class="acts"><button type="button" class="btn hold" id="sbA">◀ К левому борту</button><button type="button" class="btn hold" id="sbB">К правому борту ▶</button></div>';
-    holdBtn('sbA', { kind: 'trav', dir: -1 }, 'Погон гика-шкота'); holdBtn('sbB', { kind: 'trav', dir: 1 }, 'Погон гика-шкота');
+    host.innerHTML = `<div class="sh"><span class="sw" style="background:#7a5a3a"></span><h4>${t('trav_title')}</h4>${SG_DOT()}<span class="where">${t('trav_where')}</span></div>` +
+      `<p class="about">${t('trav_about')}</p>${gaugeHtml}${SG_HINT}` +
+      `<div class="acts"><button type="button" class="btn hold" id="sbA">${t('b_to_port')}</button><button type="button" class="btn hold" id="sbB">${t('b_to_stbd')}</button></div>`;
+    holdBtn('sbA', { kind: 'trav', dir: -1 }, t('eff_trav')); holdBtn('sbB', { kind: 'trav', dir: 1 }, t('eff_trav'));
   } else if (sel.kind === 'bs') {
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink-3)"></span><h4>Ахтерштаг</h4>${SG_DOT}<span class="where">таль на корме</span></div>` +
-      '<p class="about">Туже — мачта прогибается, грот становится площе, штаг меньше провисает и стаксель тоже площе. Подтягивают в свежий ветер на острых курсах.</p>' + gaugeHtml + SG_HINT +
-      '<div class="acts"><button type="button" class="btn hold" id="sbA">Подтянуть</button><button type="button" class="btn hold" id="sbB">Потравить</button></div>';
-    holdBtn('sbA', { kind: 'bs', dir: 1 }, 'Ахтерштаг'); holdBtn('sbB', { kind: 'bs', dir: -1 }, 'Ахтерштаг');
+    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink-3)"></span><h4>${t('bs_title')}</h4>${SG_DOT()}<span class="where">${t('bs_where')}</span></div>` +
+      `<p class="about">${t('bs_about')}</p>${gaugeHtml}${SG_HINT}` +
+      `<div class="acts"><button type="button" class="btn hold" id="sbA">${t('b_tighten')}</button><button type="button" class="btn hold" id="sbB">${t('b_bs_ease')}</button></div>`;
+    holdBtn('sbA', { kind: 'bs', dir: 1 }, t('eff_bs')); holdBtn('sbB', { kind: 'bs', dir: -1 }, t('eff_bs'));
   } else if (sel.kind === 'winch') {
     const w = sel.key, occ = S.deck.winch[w], bank = w === 'RP' ? 'P' : 'S';
     const lines = SIM.CLUTCH_LINES.filter(k => LINES[k].bank === bank);
     ui.selSig = 'w' + occ;
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink-2)"></span><h4>${SIM.WINCH_NAMES[w].replace(/^./, c => c.toUpperCase())}</h4><span class="where">для снастей ${bank === 'P' ? 'левого' : 'правого'} пианино</span></div>` +
-      `<p class="about keep">${occ ? `На лебёдке «${LINES[occ].short}». Чтобы тянуть другую снасть, сначала снимите эту — её удержит закрытый стопор.` : 'Лебёдка свободна. Заведите на неё снасть, которую нужно выбрать или потравить.'}</p>` +
-      `<div class="acts">${lines.map(k => `<button type="button" class="btn" data-wl="${k}">${occ === k ? 'Снять' : 'Завести'} «${LINES[k].short}»</button>`).join('')}</div>` +
-      (occ ? `<button type="button" class="btn" id="sbGoLine">Открыть карточку «${LINES[occ].short}»</button>` : '');
+    const nm = SIM.winchName(w);
+    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink-2)"></span><h4>${esc(nm.charAt(0).toUpperCase() + nm.slice(1))}</h4><span class="where">${t('winch_where', bank)}</span></div>` +
+      `<p class="about keep">${esc(occ ? t('winch_busy_about', LINES[occ].ref) : t('winch_free_about'))}</p>` +
+      `<div class="acts">${lines.map(k => `<button type="button" class="btn" data-wl="${k}">${esc(t('winch_line_btn', occ === k, LINES[k].short))}</button>`).join('')}</div>` +
+      (occ ? `<button type="button" class="btn" id="sbGoLine">${esc(t('winch_card_btn', LINES[occ].short))}</button>` : '');
     $$('#selCard [data-wl]').forEach(b => b.addEventListener('click', () => { SIM.deckToggleWinch(S, b.dataset.wl); }));
     if (occ) $('#sbGoLine').addEventListener('click', () => select('line', occ));
     return;
@@ -735,12 +801,12 @@ function setGauge(v, label, val, tg, marks) {
   const bar = $('#sgBar'); if (!bar) return;
   $('#sgLabel').textContent = label; $('#sgVal').textContent = val;
   bar.querySelector('i').style.width = `${clamp(v, 0, 1) * 100}%`;
-  const sig = (marks || []).map(m => m.join(':')).join('|') + '/' + (tg == null ? '' : tg.toFixed(3));
+  const sig = I18N.lang + (marks || []).map(m => m.join(':')).join('|') + '/' + (tg == null ? '' : tg.toFixed(3));
   if (bar.dataset.sig !== sig) {
     bar.dataset.sig = sig;
     bar.querySelectorAll('.mk,.tg').forEach(n => n.remove());
-    for (const [p, t] of marks || []) { const m = document.createElement('span'); m.className = 'mk'; m.style.left = `${p * 100}%`; m.innerHTML = `<span>${t}</span>`; bar.appendChild(m); }
-    if (tg != null) { const t = document.createElement('span'); t.className = 'tg'; t.style.left = `calc(${clamp(tg, 0, 1) * 100}% - 1px)`; t.title = 'правильное значение'; bar.appendChild(t); }
+    for (const [p, txt] of marks || []) { const m = document.createElement('span'); m.className = 'mk'; m.style.left = `${p * 100}%`; m.innerHTML = `<span>${esc(txt)}</span>`; bar.appendChild(m); }
+    if (tg != null) { const x = document.createElement('span'); x.className = 'tg'; x.style.left = `calc(${clamp(tg, 0, 1) * 100}% - 1px)`; bar.appendChild(x); }
   }
 }
 function updateSel() {
@@ -750,84 +816,91 @@ function updateSel() {
   if (sel.kind === 'winch') { if (ui.selSig !== 'w' + d.winch[sel.key]) renderSel(); return; }
   const chips = [], warn = { text: '', cls: '' };
   if (sel.kind === 'line') {
-    const k = sel.key, L = LINES[k], prim = !!L.primary, on = SIM.onWinch(d, k), load = D.loads[k] || 0, hp = D.hoist;
+    const k = sel.key, Ln = LINES[k], prim = !!Ln.primary, on = SIM.onWinch(d, k), load = D.loads[k] || 0, hp = D.hoist;
     let g;
     switch (k) {
       case 'halyard': {
         const up = R.halyard < hp.hTaut - 0.005;
-        g = [R.halyard / 1.04, up ? 'Грот поднят' : 'Натяжение шкаторины', up ? pct(R.halyard / hp.hTaut) : pct(hp.tension), T ? (1 - BOAT.reefH[T.reef] + BOAT.TENS * T.luff) / 1.04 : null,
-          [[(1 - BOAT.reefH[2]) / 1.04, 'риф 2'], [(1 - BOAT.reefH[1]) / 1.04, 'риф 1'], [1 / 1.04, 'верх']]];
+        g = [R.halyard / 1.04, up ? t('gl_hoisted') : t('gl_luff'), up ? pct(R.halyard / hp.hTaut) : pct(hp.tension), T ? (1 - BOAT.reefH[T.reef] + BOAT.TENS * T.luff) / 1.04 : null,
+          [[(1 - BOAT.reefH[2]) / 1.04, t('gm_reef2')], [(1 - BOAT.reefH[1]) / 1.04, t('gm_reef1')], [1 / 1.04, t('gm_top')]]];
         break;
       }
-      case 'reef1': case 'reef2': { const i = k === 'reef1' ? 1 : 2; g = [R[k], 'Риф-шкентель выбран', pct(R[k]), T ? (T.reef >= i ? 1 : 0) : null]; break; }
-      case 'vang': g = [R.vang, 'Натяжение', pct(R.vang), T ? T.vang : null]; break;
-      case 'outhaul': g = [R.outhaul, 'Натяжение', pct(R.outhaul), T ? T.outhaul : null]; break;
-      case 'main': g = [R.main, 'Потравлен', `${pct(R.main)} · гик ${r0(Math.abs(S.boomAngle))}°`, T ? T.mainsheet : null]; break;
-      case 'furl': g = [R.furl, 'Закручен', `${pct(R.furl)} · раскрыт ${pct(1 - R.furl)}`, T ? 1 - T.open : null]; break;
+      case 'reef1': case 'reef2': { const i = k === 'reef1' ? 1 : 2; g = [R[k], t('gl_reef'), pct(R[k]), T ? (T.reef >= i ? 1 : 0) : null]; break; }
+      case 'vang': g = [R.vang, t('gl_tension'), pct(R.vang), T ? T.vang : null]; break;
+      case 'outhaul': g = [R.outhaul, t('gl_tension'), pct(R.outhaul), T ? T.outhaul : null]; break;
+      case 'main': g = [R.main, t('gl_eased'), t('gv_main', pct(R.main), r0(Math.abs(S.boomAngle))), T ? T.mainsheet : null]; break;
+      case 'furl': g = [R.furl, t('gl_furled'), t('gv_furl', pct(R.furl), pct(1 - R.furl)), T ? 1 - T.open : null]; break;
       default: {
         const s = k === 'sheetP' ? -1 : 1, e = R[k] - 0.8 * R.furl, working = D.jib.bind && D.jib.ctrl === s;
-        g = [clamp(e / 1.3, 0, 1), working ? 'Рабочий шкот · потравлен' : 'Ленивый шкот', working ? `стаксель ${r0(Math.abs(D.jib.delta))}° к ДП` : (e > 1.3 ? 'свободен' : `потравлен на ${pct(clamp(e / 1.3, 0, 1))}`), (T && working) ? T.jibSheet : null];
+        g = [clamp(e / 1.3, 0, 1), working ? t('gl_working') : t('gl_lazy'), working ? t('gv_jib', r0(Math.abs(D.jib.delta))) : (e > 1.3 ? t('gv_slack') : t('gv_eased', pct(clamp(e / 1.3, 0, 1)))), (T && working) ? T.jibSheet : null];
       }
     }
     setGauge(...g);
-    if (!prim) chips.push(`<span class="chip ${d.clutch[k] ? '' : 'on'}">Стопор: <b>${d.clutch[k] ? 'закрыт' : 'открыт'}</b></span>`);
-    chips.push(`<span class="chip ${on ? 'on' : ''}">Лебёдка: <b>${on ? (prim ? 'в самостопоре' : 'да') : (prim ? 'снят' : 'нет')}</b></span>`);
-    chips.push(`<span class="chip">Нагрузка: <b>${loadTxt(load)}</b></span>`);
-    if (d.running[k]) { chips.push('<span class="chip danger"><b>уходит!</b></span>'); warn.text = 'Снасть свободна и уходит под нагрузкой. Закройте стопор или заведите её на лебёдку.'; }
-    else if (!prim && d.clutch[k] === 1 && !on && load > 0.06) { warn.text = 'Снасть под нагрузкой и держится только стопором. Перед тем как открыть стопор, заведите её на лебёдку.'; warn.cls = 'soft'; }
-    else if (!on) { warn.text = 'Выбирать и травить можно только на лебёдке.'; warn.cls = 'soft'; }
-    if (!prim) $('#sbClutch').textContent = d.clutch[k] ? 'Открыть стопор' : 'Закрыть стопор';
+    if (!prim) chips.push(`<span class="chip ${d.clutch[k] ? '' : 'on'}">${t('ch_clutch', d.clutch[k])}</span>`);
+    chips.push(`<span class="chip ${on ? 'on' : ''}">${t('ch_winch', on, prim)}</span>`);
+    chips.push(`<span class="chip">${t('ch_load', loadTxt(load))}</span>`);
+    if (d.running[k]) { chips.push(`<span class="chip danger">${t('ch_running')}</span>`); warn.text = t('wn_running'); }
+    else if (!prim && d.clutch[k] === 1 && !on && load > 0.06) { warn.text = t('wn_clutchOnly'); warn.cls = 'soft'; }
+    else if (!on) { warn.text = t('wn_noWinch'); warn.cls = 'soft'; }
+    if (!prim) $('#sbClutch').textContent = d.clutch[k] ? t('b_clutch_open') : t('b_clutch_close');
     const w = SIM.winchFor(k), occ = d.winch[w];
-    $('#sbWinch').textContent = on ? 'Снять с лебёдки' : (occ ? `Лебёдка занята: ${LINES[occ].short}` : 'Завести на лебёдку');
+    $('#sbWinch').textContent = on ? t('b_winch_off') : (occ ? t('b_winch_busy', LINES[occ].short) : t('b_winch_on'));
     if (prim) {
       const s = k === 'sheetP' ? -1 : 1, pb = $('#sbPole');
       pb.hidden = !(D.awaAbs > 120 || R.pole);
-      pb.textContent = R.pole === s ? 'Убрать выносной гик' : 'Выносной гик на этот борт';
+      pb.textContent = R.pole === s ? t('b_pole_off') : t('b_pole_on');
     }
   } else if (sel.kind === 'car') {
     const s = sel.key === 'P' ? -1 : 1, c = sel.key === 'P' ? R.carP : R.carS, sh = sel.key === 'P' ? 'sheetP' : 'sheetS';
     const working = D.jib.bind && D.jib.ctrl === s, load = D.loads[sh] || 0;
-    setGauge(c, 'Положение', `отверстие ${r0(c * 14) + 1} из 15`, (T && working) ? T.car : null, [[0, 'нос'], [1, 'корма']]);
-    chips.push(`<span class="chip">${working ? 'рабочий борт' : 'ленивый борт'}</span>`, `<span class="chip">Нагрузка на шкот: <b>${loadTxt(load)}</b></span>`);
-    if (load > 0.22) { warn.text = 'Шкот этого борта нагружен — каретка не сдвинется. Потравите шкот, переставьте каретку, снова выберите шкот.'; warn.cls = 'soft'; }
+    setGauge(c, t('gl_pos'), t('gv_hole', r0(c * 14) + 1), (T && working) ? T.car : null, [[0, t('gm_bow')], [1, t('gm_stern')]]);
+    chips.push(`<span class="chip">${t('ch_side', working)}</span>`, `<span class="chip">${t('ch_sheetload', loadTxt(load))}</span>`);
+    if (load > 0.22) { warn.text = t('wn_carLoaded'); warn.cls = 'soft'; }
   } else if (sel.kind === 'trav') {
-    const t = R.trav, lee = S.boomSide;
-    const rel = t * lee > 0.02 ? 'под ветер' : t * lee < -0.02 ? 'на ветер' : 'по центру';
-    setGauge((t + 1) / 2, 'Положение', `${t > 0.02 ? pct(t) + ' к правому' : t < -0.02 ? pct(-t) + ' к левому' : 'центр'} · ${rel}`, T ? (T.travLee * lee + 1) / 2 : null, [[0, 'левый'], [0.5, 'центр'], [1, 'правый']]);
-    chips.push(`<span class="chip">Подветренный борт: <b>${lee > 0 ? 'правый' : 'левый'}</b></span>`, `<span class="chip">Нагрузка: <b>${loadTxt(D.loads.main || 0)}</b></span>`);
+    const tr = R.trav, lee = S.boomSide;
+    const rel = tr * lee > 0.02 ? t('rel_lee') : tr * lee < -0.02 ? t('rel_win') : t('rel_c');
+    setGauge((tr + 1) / 2, t('gl_pos'), t('gv_trav', tr, rel), T ? (T.travLee * lee + 1) / 2 : null, [[0, t('gm_port')], [0.5, t('gm_c')], [1, t('gm_stbd')]]);
+    chips.push(`<span class="chip">${t('ch_leeside', lee)}</span>`, `<span class="chip">${t('ch_load', loadTxt(D.loads.main || 0))}</span>`);
   } else if (sel.kind === 'bs') {
-    setGauge(R.backstay, 'Натяжение', pct(R.backstay), T ? T.backstay : null);
+    setGauge(R.backstay, t('gl_tension'), pct(R.backstay), T ? T.backstay : null);
   }
   $('#sgChips').innerHTML = chips.join('');
   const wl = $('#sgWarn');
   wl.hidden = !warn.text; wl.textContent = warn.text; wl.className = 'warnline' + (warn.cls === 'soft' ? ' soft' : '');
-  const ik = DECK_ITEM[selKey(sel)], sb = $('#sgSt');
-  if (ik && sb) {
+  const sk = selKey(sel), ik = D.hoveList ? DECK_HOVE[sk] : DECK_ITEM[sk], sb = $('#sgSt');
+  if (sb) {
     const it = itemOf(D, ik);
     setSt(sb, it); sb.setAttribute('aria-expanded', String(ui.selHint));
-    sb.title = `Оценка: ${it ? it.name : ''} — ${ST_TXT[it ? it.status : 'na']}. Нажмите — подсказка`;
+    sb.title = t('sg_title', it ? it.name : '—', stTxt(it ? it.status : 'na'));
     const box = $('#sgHint'); box.hidden = !ui.selHint;
     if (ui.selHint) fillHint(box, it);
   }
 }
 function updateDeckSide() {
   const d = S.deck, msg = $('#deckMsg');
-  if (d.msg && S.t - d.msg.t < 3.5) { msg.hidden = false; msg.textContent = d.msg.text; } else msg.hidden = true;
-  $('#deckLog').innerHTML = d.log.map(l => `<li class="${l.kind === 'bad' ? 'bad' : ''}">${esc(l.text)}</li>`).join('') || '<li>Пока пусто.</li>';
+  if (d.msg && S.t - d.msg.t < 3.5) { msg.hidden = false; msg.textContent = SIM.msgText(d.msg); } else msg.hidden = true;
+  $('#deckLog').innerHTML = d.log.map(l => `<li class="${l.kind === 'bad' ? 'bad' : ''}">${esc(SIM.logText(l))}</li>`).join('') || `<li>${t('log_empty')}</li>`;
 }
 
 /* ---------- сценарии ---------- */
 function buildScenarios() {
-  const groups = {};
-  for (const s of SIM.SCENARIOS) (groups[s.group] = groups[s.group] || []).push(s);
+  const groups = [];
+  for (const s of SIM.SCENARIOS) {
+    let g = groups.find(x => x.def === s.group);
+    if (!g) { g = { def: s.group, list: [] }; groups.push(g); }
+    g.list.push(s);
+  }
   let html = '';
-  for (const g in groups) {
-    html += `<div class="group scgroup"><h3>${g}</h3><div class="sclist">`;
-    for (const s of groups[g]) html += `<div class="sc-item" data-id="${s.id}"><div><span class="lvl">${'●'.repeat(s.level)}${'○'.repeat(3 - s.level)} сложность</span><h4>${s.title}</h4></div><button type="button" class="btn" data-start="${s.id}">Начать</button><p>${s.brief}</p></div>`;
+  for (const g of groups) {
+    html += `<div class="group scgroup"><h3>${esc(L(g.def))}</h3><div class="sclist">`;
+    for (const s of g.list) html += `<div class="sc-item" data-id="${s.id}"><div><span class="lvl">${esc(t('difficulty', '●'.repeat(s.level) + '○'.repeat(3 - s.level)))}</span><h4>${esc(L(s.title))}</h4></div><button type="button" class="btn" data-start="${s.id}">${t('start')}</button><p>${esc(L(s.brief))}</p></div>`;
     html += '</div></div>';
   }
   $('#scList').innerHTML = html;
   $$('#scList [data-start]').forEach(b => b.addEventListener('click', () => startScn(b.dataset.start)));
+  refreshScnMarks();
+}
+function initScenarios() {
   $('#btnExitScn').addEventListener('click', exitScn);
   $('#bExit').addEventListener('click', exitScn);
   $('#bAgain').addEventListener('click', () => { if (S.scn) startScn(S.scn.def.id); });
@@ -841,7 +914,6 @@ function buildScenarios() {
     const list = SIM.SCENARIOS, i = S.scn ? list.findIndex(s => s.id === S.scn.def.id) : -1;
     startScn(list[(i + 1) % list.length].id);
   });
-  refreshScnMarks();
 }
 function refreshScnMarks() {
   $$('#scList .sc-item').forEach(el => {
@@ -849,7 +921,7 @@ function refreshScnMarks() {
     el.classList.toggle('done', !!ui.completed[el.dataset.id]);
   });
   $('#btnExitScn').hidden = !S.scn;
-  $('#freeTitle').textContent = S.scn ? `Сценарий: ${S.scn.def.title}` : 'Свободное плавание';
+  $('#freeTitle').textContent = S.scn ? t('scn_title', L(S.scn.def.title)) : t('free_title');
 }
 function startScn(id) {
   SIM.startScenario(S, id);
@@ -862,20 +934,11 @@ function startScn(id) {
   if (ui.view === 'auto') ui.lastFocus = 'all';
   if (isPhone()) { setTab('ctl'); $('#panel').scrollTop = 0; }
   refreshScnMarks();
-  toast(S.scn.def.brief, 'info', 6500);
+  toast(L(S.scn.def.brief), 'info', 6500);
 }
 function exitScn() { S.scn = null; $('#debrief').hidden = true; refreshScnMarks(); updateBanner(); }
-const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
-function objText(o) {
-  switch (o.type) {
-    case 'beat': return 'Задача: лавировка — идти как можно острее к ветру и при этом быстро.';
-    case 'heading': return `Задача: держать курс ${deg3(o.hdg)} на цель и подстроить паруса.`;
-    case 'run': return 'Задача: безопасный фордевинд — ветер не должен дуть со стороны гика.';
-    case 'tack': return 'Задача: повернуть оверштаг и настроиться на другом галсе.';
-    case 'gybe': return 'Задача: контролируемый поворот фордевинд на другой галс.';
-    default: return '';
-  }
-}
+const mmss = x => `${Math.floor(x / 60)}:${String(Math.floor(x % 60)).padStart(2, '0')}`;
+function objText(o) { return o.type === 'heading' ? t('obj_heading', deg3(o.hdg)) : t('obj_' + o.type); }
 function updateBanner() {
   const sc = S.scn, b = $('#banner');
   if (!sc) { b.hidden = true; return; }
@@ -883,34 +946,39 @@ function updateBanner() {
   b.classList.toggle('open', ui.bannerOpen);
   $('#bTog').setAttribute('aria-expanded', String(ui.bannerOpen));
   $('#bTog').textContent = ui.bannerOpen ? '▴' : '▾';
-  $('#bTitle').textContent = sc.def.title;
+  $('#bTitle').textContent = L(sc.def.title);
   $('#bObj').textContent = objText(sc.def.objective);
   const next = sc.def.events[sc.evIdx];
   const at = next ? (sc.nextAt != null ? sc.nextAt : next.at) : 0;
   let ph = '';
-  if (sc.phase === 'steady' && next) ph = `событие через ${Math.max(0, Math.ceil(at - sc.t))} с`;
-  else if (sc.phase === 'respond') ph = `реакция ${mmss(sc.t - (sc.tEvent || 0))}` + (next ? ` · ещё событие через ${Math.max(0, Math.ceil(at - sc.t))} с` : '');
-  else if (sc.phase === 'done') ph = `готово за ${r0(sc.doneT)} с`;
+  if (sc.phase === 'steady' && next) ph = t('ph_wait', Math.max(0, Math.ceil(at - sc.t)));
+  else if (sc.phase === 'respond') ph = t('ph_resp', mmss(sc.t - (sc.tEvent || 0))) + (next ? t('ph_next', Math.max(0, Math.ceil(at - sc.t))) : '');
+  else if (sc.phase === 'done') ph = t('ph_done', r0(sc.doneT));
   $('#bPhase').textContent = ph;
   $('#bNow').hidden = !next || sc.phase === 'done';
   $('#bOk').hidden = sc.phase !== 'respond';
   $('#bOk i').style.width = `${clamp(sc.okT / 4, 0, 1) * 100}%`;
-  const todo = $('#bTodo');
+  const todo = $('#bTodo'), key = sc.def.id + I18N.lang;
   todo.hidden = !ui.todoOpen;
-  if (ui.todoOpen && todo.dataset.id !== sc.def.id) { todo.dataset.id = sc.def.id; todo.innerHTML = sc.def.todo.map(t => `<li>${esc(t)}</li>`).join(''); }
-  $('#bHint').textContent = ui.todoOpen ? 'Скрыть подсказку' : 'Что делать?';
+  if (ui.todoOpen && ui.todoKey !== key) { ui.todoKey = key; todo.innerHTML = L(sc.def.todo).map(x => `<li>${esc(x)}</li>`).join(''); }
+  $('#bHint').textContent = ui.todoOpen ? t('b_hint_hide') : t('b_hint');
+}
+function renderDebrief() {
+  const sc = S.scn; if (!sc) return;
+  const mist = [...new Set(sc.mistakes.map(SIM.mistakeText))];
+  const k = $('#dbKicker');
+  k.textContent = mist.length ? t('db_mist') : t('db_ok');
+  k.style.color = mist.length ? 'var(--warn)' : 'var(--ok)';
+  $('#dbTitle').textContent = L(sc.def.title);
+  $('#dbTime').textContent = t('sec', r0(sc.doneT));
+  $('#dbScore').textContent = `${r0((sc.finalScore || 0) * 100)}%`;
+  $('#dbMist').innerHTML = mist.length ? `<h3>${t('db_mistakes')}</h3><ul class="mist">${mist.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : '';
+  $('#dbTodo').innerHTML = L(sc.def.todo).map(x => `<li>${esc(x)}</li>`).join('');
+  $('#dbWhy').textContent = L(sc.def.why);
 }
 function showDebrief() {
   const sc = S.scn; if (!sc) return;
-  const mist = [...new Set(sc.mistakes)];
-  $('#debrief .kicker').textContent = mist.length ? 'Пройдено, но с ошибками' : 'Сценарий пройден';
-  $('#debrief .kicker').style.color = mist.length ? 'var(--warn)' : 'var(--ok)';
-  $('#dbTitle').textContent = sc.def.title;
-  $('#dbTime').textContent = `${r0(sc.doneT)} с`;
-  $('#dbScore').textContent = `${r0((sc.finalScore || 0) * 100)}%`;
-  $('#dbMist').innerHTML = mist.length ? `<h3>Ошибки</h3><ul class="mist">${mist.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : '';
-  $('#dbTodo').innerHTML = sc.def.todo.map(t => `<li>${esc(t)}</li>`).join('');
-  $('#dbWhy').textContent = sc.def.why;
+  renderDebrief();
   $('#debrief').hidden = false;
   ui.completed[sc.def.id] = true; store.set('done', ui.completed);
   refreshScnMarks();
@@ -923,18 +991,37 @@ function handleEvents() {
     const e = S.events.shift();
     switch (e.type) {
       case 'windEvent': toast(e.data, 'info', 4800); effectTouch(e.data, null); break;
-      case 'run': toast(`«${LINES[e.data].short}» ушёл под нагрузкой!`, 'bad', 5000); break;
-      case 'crash': toast('Гик перебросило: неконтролируемый поворот фордевинд!', 'bad', 5500); break;
-      case 'gybe': toast('Поворот фордевинд: гик перешёл на другой борт', 'info'); break;
-      case 'tack': toast('Поворот оверштаг', 'info', 2500); break;
-      case 'broach': toast('Лодку развернуло к ветру: для такого ветра слишком много парусов', 'bad', 5500); break;
-      case 'irons': toast('Лодка встала в левентик и потеряла ход. Увалитесь и дайте стакселю наполниться.', 'warn', 5500); break;
+      case 'run': toast(SIM.logText({ k: 'run', a: [e.data] }), 'bad', 5000); break;
+      case 'crash': toast(t('ev_crash'), 'bad', 5500); break;
+      case 'gybe': toast(t('ev_gybe'), 'info'); break;
+      case 'tack': toast(t('ev_tack'), 'info', 2500); break;
+      case 'broach': toast(t('ev_broach'), 'bad', 5500); break;
+      case 'irons': if (!S.helm.lash) toast(t('ev_irons'), 'warn', 5500); break;
+      case 'hoveTo': toast(t('heave_done'), 'info', 5000); syncHelm(); break;
       case 'block': if (isPhone() && S.mode === 'deck') toast(e.data, 'warn', 4500); break;
       case 'scenarioDone': showDebrief(); break;
       default: break;
     }
   }
 }
+
+/* ---------- смена языка ---------- */
+function relocalize() {
+  SIM.setLang(I18N.lang);
+  buildQuick(); syncSliders(true);
+  buildItems(); buildWindDial(); buildShift(); buildDeck(); buildScenarios();
+  renderSel(); syncPause(); syncLangUI();
+  ui.todoKey = '';
+  if (!$('#debrief').hidden) renderDebrief();
+  const D = S.D;
+  if (D) {
+    if (isPhone()) updateStrip(D); else updateHud(D);
+    updateScore(D); updateBanner(); updateCtlStatus(D);
+    if (S.mode === 'deck') { updateDeck(); updateSel(); updateDeckSide(); }
+    updateWind(D);
+  }
+}
+I18N.onChange(relocalize);
 
 /* ---------- смена раскладки ---------- */
 function onLayout() {
@@ -945,8 +1032,8 @@ function onLayout() {
 }
 
 /* ---------- сборка и цикл ---------- */
-buildQuick(); buildItems(); buildWind(); buildDeck(); buildScenarios();
-syncSliders(true);
+buildQuick(); initScore(); buildItems(); buildWindDial(); buildShift(); initWind(); buildDeck(); initDeck(); renderSel(); initScenarios(); buildScenarios();
+syncSliders(true); syncPause(); syncLangUI();
 applyStageFrac(ui.stageFrac);
 setTab('ctl');
 onMq(mqPhone, onLayout); onMq(mqStack, onLayout);
@@ -961,7 +1048,7 @@ setView(ui.view, true);
 if (scene) { scene.render(); $('#loading').hidden = true; }
 if (isPhone() && !store.get('phoneTip', false)) {
   store.set('phoneTip', true);
-  setTimeout(() => toast('Меняйте настройки внизу — 3D и полоса приборов сразу покажут результат. Полосу можно тянуть.', 'info', 7000), 700);
+  setTimeout(() => toast(t('phone_tip'), 'info', 7000), 700);
 }
 let last = G.performance.now(), accP = 0, accC = 0;
 function frame(now) {
@@ -980,6 +1067,7 @@ function frame(now) {
     if (isPhone()) updateStrip(D); else { updateHud(D); $('#effChip').hidden = true; }
     $('#hHdg2').textContent = deg3(D.hdg);
     $('#helmBar').dataset.man = D.twaAbs <= 100 ? 'tack' : D.twaAbs >= 110 ? 'gybe' : 'none';
+    syncHelm();
     updateScore(D); updateBanner();
     if (S.mode === 'quick') { syncSliders(false); updateTargets(); updateCtlStatus(D); }
     else {
@@ -987,11 +1075,10 @@ function frame(now) {
       updateDeck(); updateSel(); updateDeckSide();
     }
     if (!$('[data-pane="wind"]').hidden) updateWind(D);
-    const mid = D.tell.jib[1];
-    $('#tellVerdict').textContent = S.rig.furl >= 0.97 ? 'закручен' : (TELL_TXT[mid] || '');
+    $('#tellVerdict').textContent = S.rig.furl >= 0.97 ? t('tt_furled') : t('tv_' + D.tell.jib[1]);
   }
   G.requestAnimationFrame(frame);
 }
 G.requestAnimationFrame(frame);
-G.KOLD = { S, ui, eff, scene, setView, setTab, effectTouch };
+G.KOLD = { S, ui, eff, scene, setView, setTab, effectTouch, I18N };
 })(window);

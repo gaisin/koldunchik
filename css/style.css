@@ -139,6 +139,8 @@ button { font: inherit; color: inherit; }
 #helmBar button:active, #helmBar button.on { background: var(--accent); color: #fff; }
 #helmBar .hdg { font-family: var(--f-display); font-weight: 700; font-size: 20px; padding: 0 8px; min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; color: var(--glass-ink); }
 #helmBar .sep { width: 1px; height: 22px; background: var(--glass-line); margin: 0 2px; }
+#helmBar .ico { display: grid; place-items: center; padding: 6px 9px; }
+#helmBar .ico[aria-pressed="true"] { background: var(--accent); color: #fff; }
 
 #gauges { position: absolute; left: 12px; right: 12px; bottom: 64px; display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; z-index: 2; }
 .gcard { border-radius: 14px; padding: 8px; pointer-events: auto; }
@@ -156,6 +158,11 @@ button { font: inherit; color: inherit; }
 #panel > * { flex-shrink: 0; }
 .brand { padding: 14px 16px 10px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
 .brand svg { flex: 0 0 auto; }
+.brand-text { flex: 1; min-width: 0; }
+.langsw { display: flex; flex: 0 0 auto; align-self: flex-start; background: var(--surface-2); border-radius: 8px; padding: 2px; gap: 2px; }
+.langsw button { border: 0; background: transparent; border-radius: 6px; padding: 4px 8px; font-family: var(--f-display); font-weight: 700; font-size: 12.5px; letter-spacing: 0.06em; color: var(--ink-3); cursor: pointer; }
+.langsw button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+#langBtn { display: none; }
 .brand h1 { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 21px; letter-spacing: 0.01em; line-height: 1.1; }
 .brand p { margin: 0; font-size: 12px; color: var(--ink-2); }
 
@@ -247,6 +254,9 @@ button { font: inherit; color: inherit; }
 .range .tgt { position: absolute; top: -3px; width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid var(--ok); transform: translateX(-6px); pointer-events: none; transition: left 0.3s; }
 .ends { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--ink-3); margin-top: -2px; }
 .toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 0; }
+.hove { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 6px; }
+.hove .check { font-size: 13.5px; color: var(--ink); }
+.hove .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* ---------- Палуба ---------- */
 .deckwrap { background: var(--surface-2); border-radius: 12px; padding: 6px; }
@@ -354,7 +364,8 @@ button { font: inherit; color: inherit; }
   .pane { padding: 12px 16px 28px; gap: 12px; }
   #scoreCard { border-bottom: 0; padding: 14px 16px 18px; }
 
-  /* камера: кнопка и меню */
+  /* язык, камера: кнопки и меню */
+  #langBtn { display: grid; place-items: center; position: absolute; top: 10px; right: 56px; z-index: 6; width: 40px; height: 40px; padding: 0; border-radius: 12px; cursor: pointer; font-family: var(--f-display); font-weight: 700; font-size: 14px; letter-spacing: 0.04em; }
   #camBtn { display: grid; place-items: center; position: absolute; top: 10px; right: 10px; z-index: 6; width: 40px; height: 40px; padding: 0; border-radius: 12px; cursor: pointer; }
   #camBtn[aria-expanded="true"] { background: var(--accent); border-color: transparent; color: #fff; }
   #camBar { display: none; top: 56px; right: 10px; gap: 5px; }
@@ -365,7 +376,7 @@ button { font: inherit; color: inherit; }
   #camBar .pill button small { display: inline; }
 
   /* оверлеи 3D */
-  #topStack { top: 10px; left: 10px; right: 58px; width: auto; gap: 6px; }
+  #topStack { top: 10px; left: 10px; right: 104px; width: auto; gap: 6px; }
   #banner { padding: 7px 8px 8px 11px; }
   #banner .b-top { align-items: center; gap: 8px; cursor: pointer; }
   #banner .b-title { font-size: 15px; line-height: 1.2; }
@@ -391,8 +402,9 @@ button { font: inherit; color: inherit; }
   #helmBar { bottom: 8px; padding: 3px; gap: 3px; }
   #hLeft, #hRight, #helmBar .sep { display: none; }
   #helmBar[data-man="tack"] #hGybe, #helmBar[data-man="gybe"] #hTack, #helmBar[data-man="none"] #hTack, #helmBar[data-man="none"] #hGybe { display: none; }
-  #helmBar button { padding: 7px 11px; font-size: 13.5px; }
-  #helmBar .hdg { font-size: 18px; min-width: 52px; padding: 0 3px; }
+  #helmBar button { padding: 7px 10px; font-size: 13.5px; }
+  #helmBar .ico { padding: 6px 8px; }
+  #helmBar .hdg { font-size: 18px; min-width: 50px; padding: 0 2px; }
 
   /* полоса приборов */
   #strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; position: relative; background: var(--instr); color: var(--glass-ink); padding: 4px 6px 12px; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -444,8 +456,9 @@ button { font: inherit; color: inherit; }
   #strip b { font-size: 18px; }
   #strip .k { font-size: 9px; letter-spacing: 0.04em; }
   #strip .d { font-size: 10px; }
-  #helmBar button { padding: 8px 8px; font-size: 12.5px; }
-  #helmBar .hdg { font-size: 16px; min-width: 44px; }
+  #helmBar button { padding: 8px 7px; font-size: 12.5px; }
+  #helmBar .ico { padding: 6px 6px; }
+  #helmBar .hdg { font-size: 16px; min-width: 42px; }
   .tabs button { padding: 10px 8px 11px; font-size: 13px; }
   .windrow { grid-template-columns: 1fr; justify-items: center; }
   .score-num { font-size: 40px; min-width: 80px; }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Колдунчик — тренажёр настройки парусов</title>
+<title>Колдунчик · Telltale — тренажёр настройки парусов</title>
 <meta name="description" content="3D-тренажёр настройки парусов круизной яхты 13 м: ветер и курс, пианино и лебёдки, колдунчики, оценка по пунктам с подсказками и сценарии смены ветра.">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Колдунчик — тренажёр настройки парусов">
@@ -17,260 +17,208 @@
 </head>
 <body>
 <div id="app">
-  <section id="stageWrap" aria-label="3D-вид яхты">
+  <section id="stageWrap" aria-label="3D-вид яхты" data-ta="aria-label:aria_stage">
     <div id="stage">
       <canvas id="gl"></canvas>
-      <div id="loading"><p>Загружаю 3D-сцену…</p></div>
+      <div id="loading"><p data-t="loading">Загружаю 3D-сцену…</p></div>
       <div id="hud">
-        <div class="tile glass speed"><div class="lbl">Скорость</div><div class="val" id="hBsp">0.0<small>уз</small></div><div class="sub" id="hVmg">VMG —</div></div>
-        <div class="tile glass"><div class="lbl">Курс</div><div class="val" id="hHdg">000°</div><div class="sub" id="hPos">—</div></div>
-        <div class="tile glass"><div class="lbl">Истинный ветер</div><div class="val" id="hTws">0<small>уз</small></div><div class="sub" id="hTwa">—</div></div>
-        <div class="tile glass"><div class="lbl">Вымпельный</div><div class="val" id="hAws">0<small>уз</small></div><div class="sub" id="hAwa">—</div></div>
-        <div class="tile glass"><div class="lbl">Крен</div><div class="val" id="hHeel">0°</div><div class="sub" id="hRud">—</div></div>
+        <div class="tile glass speed"><div class="lbl" data-t="hud_speed">Скорость</div><div class="val" id="hBsp">0.0</div><div class="sub" id="hVmg">VMG —</div></div>
+        <div class="tile glass"><div class="lbl" data-t="hud_hdg">Курс</div><div class="val" id="hHdg">000°</div><div class="sub" id="hPos">—</div></div>
+        <div class="tile glass"><div class="lbl" data-t="hud_tws">Истинный ветер</div><div class="val" id="hTws">0</div><div class="sub" id="hTwa">—</div></div>
+        <div class="tile glass"><div class="lbl" data-t="hud_aws">Вымпельный</div><div class="val" id="hAws">0</div><div class="sub" id="hAwa">—</div></div>
+        <div class="tile glass"><div class="lbl" data-t="hud_heel">Крен</div><div class="val" id="hHeel">0°</div><div class="sub" id="hRud">—</div></div>
       </div>
       <div id="topStack">
         <div id="banner" class="glass" hidden>
           <div class="b-top" id="bTop">
             <div class="b-title" id="bTitle"></div>
             <div class="b-phase" id="bPhase"></div>
-            <button type="button" class="b-tog" id="bTog" aria-expanded="false" aria-label="Показать задачу и кнопки сценария">▾</button>
+            <button type="button" class="b-tog" id="bTog" aria-expanded="false" aria-label="Показать задачу и кнопки сценария" data-ta="aria-label:aria_bTog">▾</button>
           </div>
           <div class="b-obj" id="bObj"></div>
           <div class="okbar" id="bOk" hidden><i></i></div>
           <ol class="b-todo" id="bTodo" hidden></ol>
           <div class="b-acts">
             <button type="button" class="gbtn" id="bHint">Что делать?</button>
-            <button type="button" class="gbtn primary" id="bNow">Событие сейчас</button>
-            <button type="button" class="gbtn" id="bAgain">Заново</button>
-            <button type="button" class="gbtn" id="bExit">Выйти</button>
+            <button type="button" class="gbtn primary" id="bNow" data-t="b_now">Событие сейчас</button>
+            <button type="button" class="gbtn" id="bAgain" data-t="b_again">Заново</button>
+            <button type="button" class="gbtn" id="bExit" data-t="b_exit">Выйти</button>
           </div>
         </div>
         <div id="toasts" aria-live="polite"></div>
       </div>
-      <div id="effChip" class="glass" hidden><span class="eff-k">Эффект</span><b id="effName"></b><span id="effTrend"></span></div>
-      <div id="helmBar" class="glass" role="group" aria-label="Руль" data-man="tack">
-        <button type="button" id="hLeft" aria-label="Руль влево">◀<span class="lbl"> Лево</span></button>
-        <button type="button" id="hUp">Привестись</button>
+      <div id="effChip" class="glass" hidden><span class="eff-k" data-t="eff_k">Эффект</span><b id="effName"></b><span id="effTrend"></span></div>
+      <div id="helmBar" class="glass" role="group" aria-label="Руль" data-ta="aria-label:aria_helm" data-man="tack">
+        <button type="button" id="hLeft" aria-label="Руль влево" data-ta="aria-label:helm_left_aria">◀<span class="lbl" data-t="helm_left"> Лево</span></button>
+        <button type="button" id="hUp" data-t="helm_up">Привестись</button>
         <div class="hdg" id="hHdg2">000°</div>
-        <button type="button" id="hDown">Увалиться</button>
-        <button type="button" id="hRight" aria-label="Руль вправо"><span class="lbl">Право </span>▶</button>
+        <button type="button" id="hDown" data-t="helm_down">Увалиться</button>
+        <button type="button" id="hRight" aria-label="Руль вправо" data-ta="aria-label:helm_right_aria"><span class="lbl" data-t="helm_right">Право </span>▶</button>
         <div class="sep"></div>
-        <button type="button" id="hTack">Оверштаг</button>
-        <button type="button" id="hGybe">Фордевинд</button>
+        <button type="button" id="hLash" class="ico" aria-pressed="false" aria-label="Закрепить руль на приведение (для дрейфа)" title="Закрепить руль на приведение (для дрейфа)" data-ta="aria-label:helm_lash;title:helm_lash">
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 11 V8 a4 4 0 0 1 8 0 V11" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        </button>
+        <button type="button" id="hTack" data-t="helm_tack">Оверштаг</button>
+        <button type="button" id="hGybe" data-t="helm_gybe">Фордевинд</button>
       </div>
     </div>
-    <button type="button" id="camBtn" class="glass" aria-label="Вид камеры" aria-expanded="false" aria-controls="camBar">
+    <button type="button" id="langBtn" class="glass" aria-label="Switch to English" data-ta="aria-label:lang_btn_aria">EN</button>
+    <button type="button" id="camBtn" class="glass" aria-label="Вид камеры" data-ta="aria-label:aria_cam" aria-expanded="false" aria-controls="camBar">
       <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 10.5 L21.5 7 V17 L15.5 13.5 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
     </button>
     <div id="camBar">
-      <div class="pill glass" role="group" aria-label="Вид камеры">
-        <button type="button" data-view="auto" aria-pressed="false" title="Камера сама показывает ту часть яхты, которую вы настраиваете">Авто<small> — к настройке</small></button>
-        <button type="button" data-view="free" aria-pressed="true">Свободно</button>
-        <button type="button" data-view="cockpit" aria-pressed="false">С кокпита</button>
-        <button type="button" data-view="stern" aria-pressed="false">Сзади</button>
-        <button type="button" data-view="top" aria-pressed="false">Сверху</button>
-        <button type="button" data-view="side" aria-pressed="false">Сбоку</button>
+      <div class="pill glass" role="group" aria-label="Вид камеры" data-ta="aria-label:aria_cam">
+        <button type="button" data-view="auto" aria-pressed="false" title="Камера сама показывает ту часть яхты, которую вы настраиваете" data-ta="title:cam_auto_title"><span data-t="cam_auto">Авто</span><small data-t="cam_auto_sub"> — к настройке</small></button>
+        <button type="button" data-view="free" aria-pressed="true" data-t="cam_free">Свободно</button>
+        <button type="button" data-view="cockpit" aria-pressed="false" data-t="cam_cockpit">С кокпита</button>
+        <button type="button" data-view="stern" aria-pressed="false" data-t="cam_stern">Сзади</button>
+        <button type="button" data-view="top" aria-pressed="false" data-t="cam_top">Сверху</button>
+        <button type="button" data-view="side" aria-pressed="false" data-t="cam_side">Сбоку</button>
       </div>
       <div class="pill glass toggles">
-        <button type="button" id="btnWindVis" aria-pressed="true" title="Струйки вымпельного ветра вокруг лодки">Струйки</button>
+        <button type="button" id="btnWindVis" aria-pressed="true" title="Струйки вымпельного ветра вокруг лодки" data-t="airflow" data-ta="title:airflow_title">Струйки</button>
         <button type="button" id="btnPause" aria-pressed="false">Пауза</button>
       </div>
     </div>
     <div id="gauges">
-      <div class="gcard glass wind"><div class="gtitle"><span>Ветер</span><span id="dialMode">вымп. / ист.</span></div><canvas id="windDial"></canvas></div>
-      <div class="gcard glass tell" id="tellCard"><div class="gtitle"><span>Колдунчики</span><span id="tellVerdict"></span></div><canvas id="tellCanvas"></canvas></div>
+      <div class="gcard glass wind"><div class="gtitle"><span data-t="g_wind">Ветер</span><span data-t="g_wind_mode">вымп. / ист.</span></div><canvas id="windDial"></canvas></div>
+      <div class="gcard glass tell" id="tellCard"><div class="gtitle"><span data-t="g_tell">Колдунчики</span><span id="tellVerdict"></span></div><canvas id="tellCanvas"></canvas></div>
     </div>
   </section>
 
-  <div id="strip" role="group" aria-label="Приборы. После каждого изменения показывают, что изменилось">
-    <div class="sc" id="cBsp"><span class="k">Скорость</span><b id="sBsp">0.0</b><span class="d" id="dBsp"></span></div>
-    <div class="sc" id="cHeel"><span class="k">Крен</span><b id="sHeel">0°</b><span class="d" id="dHeel"></span></div>
-    <div class="sc" id="cTwa"><span class="k">К ветру</span><b id="sTwa">0°</b><span class="d" id="dTwa"></span></div>
-    <div class="sc" id="cAwa"><span class="k">Вымп.</span><b id="sAwa">0°</b><span class="d" id="dAwa"></span></div>
-    <button type="button" class="sc" id="cScore" aria-label="Оценка настройки: открыть подробности"><span class="k">Настройка</span><b id="sScore">0%</b><span class="d" id="dScore"></span></button>
+  <div id="strip" role="group" aria-label="Приборы" data-ta="aria-label:aria_strip">
+    <div class="sc" id="cBsp"><span class="k" data-t="s_speed">Скорость</span><b id="sBsp">0.0</b><span class="d" id="dBsp"></span></div>
+    <div class="sc" id="cHeel"><span class="k" data-t="s_heel">Крен</span><b id="sHeel">0°</b><span class="d" id="dHeel"></span></div>
+    <div class="sc" id="cTwa"><span class="k" data-t="s_twa">К ветру</span><b id="sTwa">0°</b><span class="d" id="dTwa"></span></div>
+    <div class="sc" id="cAwa"><span class="k" data-t="s_awa">Вымп.</span><b id="sAwa">0°</b><span class="d" id="dAwa"></span></div>
+    <button type="button" class="sc" id="cScore" aria-label="Оценка настройки" data-ta="aria-label:aria_scoreCell"><span class="k" data-t="s_score">Настройка</span><b id="sScore">0%</b><span class="d" id="dScore"></span></button>
     <span class="grip" aria-hidden="true"></span>
   </div>
 
-  <aside id="panel" aria-label="Панель управления">
+  <aside id="panel" aria-label="Панель управления" data-ta="aria-label:aria_panel">
     <header class="brand">
       <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><path d="M8 30 L15 3 L28 28 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 12 q4 -1 7 1" stroke="#d2343a" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M14 19 q4 -1 8 1" stroke="#1b9a55" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M4 31 h26" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <div><h1>Колдунчик</h1><p>Тренажёр настройки парусов · яхта 13 м, шлюп (тип Dufour 430)</p></div>
+      <div class="brand-text"><h1 data-t="brand">Колдунчик</h1><p data-t="brand_sub">Тренажёр настройки парусов · яхта 13 м, шлюп (тип Dufour 430)</p></div>
+      <div class="langsw" role="group" aria-label="Язык" data-ta="aria-label:aria_lang">
+        <button type="button" data-lang="ru" aria-pressed="true" lang="ru">RU</button>
+        <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
+      </div>
     </header>
 
-    <section id="scoreCard" aria-label="Оценка настройки">
+    <section id="scoreCard" aria-label="Оценка настройки" data-ta="aria-label:aria_score">
       <div class="score-head">
         <div class="score-num" id="scoreNum">0<span>%</span></div>
         <div class="score-meta">
-          <div class="score-label">Настройка парусов</div>
+          <div class="score-label" data-t="score_label">Настройка парусов</div>
           <div class="segbar" id="scoreBar"></div>
           <div class="score-sub" id="scoreSub">—</div>
         </div>
       </div>
       <div class="score-actions">
-        <button type="button" class="btn" id="btnTop">Что исправить первым?</button>
-        <button type="button" class="btn" id="btnSolve">Показать правильно</button>
-        <label class="check"><input type="checkbox" id="autoHints"> Подсказки сразу</label>
+        <button type="button" class="btn" id="btnTop" data-t="btn_top">Что исправить первым?</button>
+        <button type="button" class="btn" id="btnSolve" data-t="btn_solve">Показать правильно</button>
+        <label class="check"><input type="checkbox" id="autoHints"> <span data-t="auto_hints">Подсказки сразу</span></label>
       </div>
       <div class="items" id="items"></div>
       <div class="hint" id="hintBox" hidden>
-        <div class="hint-h"><b id="hintName"></b><span id="hintSt"></span><button type="button" class="x" id="hintClose" aria-label="Скрыть подсказку">×</button></div>
+        <div class="hint-h"><b id="hintName"></b><span id="hintSt"></span><button type="button" class="x" id="hintClose" aria-label="Скрыть подсказку" data-ta="aria-label:aria_hintClose">×</button></div>
         <p class="diag" id="hintDiag"></p>
         <p class="act" id="hintAct"></p>
       </div>
     </section>
 
     <nav class="tabs" role="tablist">
-      <button type="button" role="tab" aria-selected="true" data-tab="ctl"><span class="tl">Управление</span><span class="ts">Паруса</span></button>
-      <button type="button" role="tab" aria-selected="false" data-tab="score" class="tab-score">Оценка</button>
-      <button type="button" role="tab" aria-selected="false" data-tab="wind"><span class="tl">Ветер и курс</span><span class="ts">Ветер</span></button>
-      <button type="button" role="tab" aria-selected="false" data-tab="scn">Сценарии</button>
-      <button type="button" role="tab" aria-selected="false" data-tab="help">Справка</button>
+      <button type="button" role="tab" aria-selected="true" data-tab="ctl"><span class="tl" data-t="tab_ctl">Управление</span><span class="ts" data-t="tab_ctl_s">Паруса</span></button>
+      <button type="button" role="tab" aria-selected="false" data-tab="score" class="tab-score" data-t="tab_score">Оценка</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="wind"><span class="tl" data-t="tab_wind">Ветер и курс</span><span class="ts" data-t="tab_wind_s">Ветер</span></button>
+      <button type="button" role="tab" aria-selected="false" data-tab="scn" data-t="tab_scn">Сценарии</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="help" data-t="tab_help">Справка</button>
     </nav>
 
     <div class="pane" data-pane="ctl">
-      <div class="seg" role="group" aria-label="Режим управления">
-        <button type="button" id="modeQuick" aria-pressed="true">Быстрые настройки<small>ползунки</small></button>
-        <button type="button" id="modeDeck" aria-pressed="false">Палуба<small>пианино и лебёдки</small></button>
+      <div class="seg" role="group" aria-label="Режим управления" data-ta="aria-label:aria_mode">
+        <button type="button" id="modeQuick" aria-pressed="true"><span data-t="mode_quick">Быстрые настройки</span><small data-t="mode_quick_s">ползунки</small></button>
+        <button type="button" id="modeDeck" aria-pressed="false"><span data-t="mode_deck">Палуба</span><small data-t="mode_deck_s">пианино и лебёдки</small></button>
       </div>
       <div id="quickPane">
         <div id="quickGroups"></div>
-        <label class="check"><input type="checkbox" id="showTargets"> Показывать цели на шкалах</label>
+        <label class="check"><input type="checkbox" id="showTargets"> <span data-t="show_targets">Показывать цели на шкалах</span></label>
       </div>
       <div id="deckPane" hidden>
-        <p class="note">Нажмите на стопор, лебёдку, каретку или погон. Стопор пропускает снасть на выбирание, но не даёт травить: чтобы потравить, заведите снасть на лебёдку и откройте стопор.</p>
-        <div class="deckwrap"><svg id="deckSvg" viewBox="0 0 360 352" role="img" aria-label="Схема кокпита и рубки: пианино, лебёдки, погоны"></svg></div>
-        <div class="selcard" id="selCard"><p class="note">Ничего не выбрано. Начните со стопора в пианино.</p></div>
+        <p class="note" data-t="deck_note">Нажмите на стопор, лебёдку, каретку или погон.</p>
+        <div class="deckwrap"><svg id="deckSvg" viewBox="0 0 360 352" role="img" aria-label="Схема кокпита и рубки" data-ta="aria-label:aria_deckSvg"></svg></div>
+        <div class="selcard" id="selCard"></div>
         <p class="msgline" id="deckMsg" hidden></p>
-        <div><div class="score-label">Журнал</div><ul class="log" id="deckLog"></ul></div>
+        <div><div class="score-label" data-t="deck_log">Журнал</div><ul class="log" id="deckLog"></ul></div>
       </div>
     </div>
 
     <div class="pane" data-pane="wind" hidden>
       <div class="group">
-        <h3>Истинный ветер</h3>
+        <h3 data-t="w_true">Истинный ветер</h3>
         <div class="windrow">
-          <svg id="dirDial" viewBox="0 0 150 150" role="slider" aria-label="Направление истинного ветра" tabindex="0" aria-valuemin="0" aria-valuemax="359"></svg>
+          <svg id="dirDial" viewBox="0 0 150 150" role="slider" aria-label="Направление истинного ветра" data-ta="aria-label:aria_dirDial" tabindex="0" aria-valuemin="0" aria-valuemax="359"></svg>
           <div>
             <div class="ctl">
-              <div class="ctl-top"><label for="twsR">Сила ветра</label><output id="twsOut">12 уз</output></div>
+              <div class="ctl-top"><label for="twsR" data-t="w_speed">Сила ветра</label><output id="twsOut">12 уз</output></div>
               <div class="range"><input type="range" id="twsR" min="0" max="30" step="0.5"></div>
-              <div class="ends"><span>штиль</span><span id="bft"></span><span>30 уз</span></div>
+              <div class="ends"><span data-t="w_calm">штиль</span><span id="bft"></span><span data-t="w_30">30 уз</span></div>
             </div>
-            <div class="ctl-top"><span class="note">Направление (откуда дует)</span><output id="twdOut">000°</output></div>
-            <p class="note">Перетащите синюю стрелку по кругу.</p>
-            <label class="check" style="margin-top:8px"><input type="checkbox" id="gusts"> Порывы и колебания</label>
+            <div class="ctl-top"><span class="note" data-t="w_dir">Направление (откуда дует)</span><output id="twdOut">000°</output></div>
+            <p class="note" data-t="w_drag">Перетащите синюю стрелку по кругу.</p>
+            <label class="check" style="margin-top:8px"><input type="checkbox" id="gusts"> <span data-t="w_gusts">Порывы и колебания</span></label>
           </div>
         </div>
       </div>
       <div class="group">
-        <h3>Сдвиг ветра</h3>
+        <h3 data-t="w_shift">Сдвиг ветра</h3>
         <div class="shiftbtns" id="shiftBtns"></div>
         <p class="note" id="shiftNote" style="margin-top:8px"></p>
-        <button type="button" class="btn" id="btnRandom" style="margin-top:8px">Случайное изменение ветра</button>
+        <button type="button" class="btn" id="btnRandom" style="margin-top:8px" data-t="w_random">Случайное изменение ветра</button>
       </div>
       <div class="group">
-        <h3>Курс</h3>
+        <h3 data-t="w_course">Курс</h3>
         <div class="ctl">
-          <div class="ctl-top"><label for="hdgR">Компасный курс</label><output id="hdgOut">000°</output></div>
+          <div class="ctl-top"><label for="hdgR" data-t="w_hdg">Компасный курс</label><output id="hdgOut">000°</output></div>
           <div class="range"><input type="range" id="hdgR" min="0" max="359" step="1"></div>
-          <div class="ends"><span>С 0°</span><span>В 90°</span><span>Ю 180°</span><span>З 270°</span><span>359°</span></div>
+          <div class="ends"><span data-t="w_n">С 0°</span><span data-t="w_e">В 90°</span><span data-t="w_s">Ю 180°</span><span data-t="w_w">З 270°</span><span>359°</span></div>
         </div>
-        <p class="note">Руль — кнопки внизу 3D-окна или стрелки ← → (с Shift — медленнее). «Привестись» поворачивает к ветру, «Увалиться» — от ветра.</p>
+        <p class="note" data-t="w_note">Руль — кнопки внизу 3D-окна или стрелки ← →.</p>
       </div>
     </div>
 
     <div class="pane" data-pane="scn" hidden>
       <div class="freebox">
         <b id="freeTitle">Свободное плавание</b>
-        <p class="note" id="freeNote">Меняйте ветер и курс сами. Сценарий ставит задачу, меняет ветер и проверяет реакцию: оценка должна держаться выше 85% четыре секунды.</p>
-        <div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn" id="btnRandom2">Случайная смена ветра</button><button type="button" class="btn" id="btnExitScn" hidden>Выйти из сценария</button></div>
+        <p class="note" data-t="free_note">Меняйте ветер и курс сами.</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn" id="btnRandom2" data-t="scn_random">Случайная смена ветра</button><button type="button" class="btn" id="btnExitScn" data-t="scn_exit" hidden>Выйти из сценария</button></div>
       </div>
       <div id="scList"></div>
     </div>
 
-    <div class="pane help" data-pane="help" hidden>
-      <div class="phone-only">
-        <h3>На телефоне</h3>
-        <ul>
-          <li>3D-вид закреплён сверху, настройки прокручиваются под ним.</li>
-          <li>Полоса приборов под 3D после каждого изменения показывает, что изменилось: скорость, крен, углы к ветру, оценка. Потяните её вверх или вниз, чтобы изменить размер 3D.</li>
-          <li>Камера в режиме «Авто» сама поворачивается к той части яхты, которую вы настраиваете. Выбрать другой вид — кнопка с камерой в углу 3D.</li>
-          <li>Кружок рядом с настройкой показывает её оценку. Нажмите на него — откроется подсказка.</li>
-          <li>Карточку колдунчиков в углу 3D можно свернуть нажатием.</li>
-        </ul>
-      </div>
-      <div>
-        <h3>Как читать колдунчики</h3>
-        <p>На стакселе по три пары ленточек у передней шкаторины: красная — на левой стороне паруса, зелёная — на правой. Наветренная сторона обращена к ветру, подветренная — от него.</p>
-        <ul>
-          <li><b>Наветренные трепещут или поднимаются</b> — парус потравлен или курс слишком острый. Выберите шкот или увалитесь.</li>
-          <li><b>Подветренные срываются и крутятся</b> — парус перетянут. Потравите шкот или приведитесь.</li>
-          <li><b>Верхние заполаскивают раньше нижних</b> — верх слишком открыт, каретку стакселя вперёд.</li>
-          <li><b>Нижние заполаскивают раньше верхних</b> — каретку назад.</li>
-          <li><b>Колдунчики на задней шкаторине грота</b>: верхний должен струиться примерно половину времени. Всё время за парусом — грот перетянут или скрутка мала.</li>
-        </ul>
-      </div>
-      <div>
-        <h3>Курсы относительно ветра</h3>
-        <table class="pos-table"><tbody>
-          <tr><td>0–30°</td><td>Левентик — мёртвый сектор, паруса не работают</td></tr>
-          <tr><td>38–55°</td><td>Крутой бейдевинд — лавировка, шкоты выбраны</td></tr>
-          <tr><td>55–80°</td><td>Полный бейдевинд</td></tr>
-          <tr><td>80–100°</td><td>Галфвинд — ветер в борт</td></tr>
-          <tr><td>100–160°</td><td>Бакштаг — ветер сзади-сбоку</td></tr>
-          <tr><td>160–180°</td><td>Фордевинд — ветер в корму</td></tr>
-        </tbody></table>
-        <p>Ветер <b>заходит</b>, когда смещается к носу, — паруса начинают заполаскивать, приходится выбирать шкоты или уваливаться. Ветер <b>отходит</b>, когда смещается к корме, — паруса перетянуты: травите шкоты или приводитесь.</p>
-      </div>
-      <div>
-        <h3>Пианино и лебёдки</h3>
-        <ul>
-          <li>Стопор пропускает снасть на выбирание даже закрытым. Травить через закрытый стопор нельзя.</li>
-          <li>Чтобы потравить: заведите снасть на лебёдку → откройте стопор → травите → закройте стопор → снимите с лебёдки.</li>
-          <li>На лебёдке одна снасть. Чтобы тянуть другую, снимите первую — её удержит закрытый стопор.</li>
-          <li>Никогда не открывайте стопор нагруженной снасти без лебёдки: фал уронит грот, гика-шкот выбросит гик.</li>
-          <li>Каретку стакселя под нагрузкой не сдвинуть: потравите шкот, переставьте, снова выберите.</li>
-        </ul>
-      </div>
-      <div>
-        <h3>Словарь</h3>
-        <dl>
-          <dt>Шкот</dt><dd>Снасть, которой управляют углом паруса.</dd>
-          <dt>Каретка стакселя</dt><dd>Блок шкота на погоне у борта. Вперёд — верх паруса закрывается, назад — открывается.</dd>
-          <dt>Погон гика-шкота</dt><dd>Рельс с кареткой: двигает гик к ветру или под ветер, не меняя натяжение задней шкаторины.</dd>
-          <dt>Оттяжка гика</dt><dd>Тянет гик вниз и держит скрутку грота на полных курсах.</dd>
-          <dt>Аутхол</dt><dd>Натягивает нижнюю шкаторину грота вдоль гика.</dd>
-          <dt>Ахтерштаг</dt><dd>Задний штаг. Туже — мачта гнётся, грот площе, штаг меньше провисает.</dd>
-          <dt>Фал</dt><dd>Поднимает парус и натягивает переднюю шкаторину.</dd>
-          <dt>Риф</dt><dd>Уменьшение площади грота: часть паруса прибирают к гику.</dd>
-          <dt>Скрутка</dt><dd>Разница углов паруса внизу и вверху. Больше скрутка — верх разгружен.</dd>
-          <dt>Привестись / увалиться</dt><dd>Повернуть к ветру / от ветра.</dd>
-          <dt>На рауле</dt><dd>Фордевинд, при котором ветер дует со стороны гика. Грозит перебросом гика.</dd>
-        </dl>
-      </div>
-      <p class="note">Модель упрощённая и учебная: поляра и силы подобраны под круизную яхту 13 м. Цифры подсказок ориентировочные — на настоящей лодке ориентируйтесь на колдунчики и ощущение руля.</p>
-    </div>
+    <div class="pane help" data-pane="help" data-th="help_html" hidden></div>
   </aside>
 </div>
 
 <div id="debrief" hidden>
   <div class="card" role="dialog" aria-modal="true" aria-labelledby="dbTitle">
-    <div class="kicker">Сценарий пройден</div>
+    <div class="kicker" id="dbKicker"></div>
     <h2 id="dbTitle"></h2>
-    <div class="stats"><div><b id="dbTime"></b>на реакцию</div><div><b id="dbScore"></b>итоговая настройка</div></div>
+    <div class="stats"><div><b id="dbTime"></b><span data-t="db_time">на реакцию</span></div><div><b id="dbScore"></b><span data-t="db_score">итоговая настройка</span></div></div>
     <div id="dbMist"></div>
-    <h3>Что нужно было сделать</h3>
+    <h3 data-t="db_todo">Что нужно было сделать</h3>
     <ol id="dbTodo"></ol>
-    <h3>Почему так</h3>
+    <h3 data-t="db_why">Почему так</h3>
     <p id="dbWhy"></p>
     <div class="row">
-      <button type="button" class="btn" id="dbClose">Остаться в ситуации</button>
-      <button type="button" class="btn" id="dbAgain">Повторить</button>
-      <button type="button" class="btn primary" id="dbNext">Следующий сценарий</button>
+      <button type="button" class="btn" id="dbClose" data-t="db_stay">Остаться в ситуации</button>
+      <button type="button" class="btn" id="dbAgain" data-t="db_retry">Повторить</button>
+      <button type="button" class="btn primary" id="dbNext" data-t="db_next">Следующий сценарий</button>
     </div>
   </div>
 </div>
 
+<script src="js/i18n.js"></script>
 <script src="vendor/three.min.js"></script>
 <script src="vendor/OrbitControls.js"></script>
 <script src="js/sim.js"></script>
