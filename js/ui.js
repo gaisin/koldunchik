@@ -17,13 +17,29 @@ const store = {
   set(k, v) { try { G.localStorage.setItem('kold.' + k, JSON.stringify(v)); } catch (e) { /* хранилище недоступно */ } }
 };
 
+/* ---------- раскладка: телефон или компьютер ---------- */
+const Q_PHONE = '(max-width: 860px) and (orientation: portrait), (max-width: 620px), (orientation: landscape) and (max-height: 520px)';
+const Q_STACK = '(max-width: 860px) and (orientation: portrait), (max-width: 620px)';
+const mq = q => (typeof G.matchMedia === 'function' ? G.matchMedia(q) : { matches: false });
+const mqPhone = mq(Q_PHONE), mqStack = mq(Q_STACK);
+const onMq = (m, fn) => { if (m.addEventListener) m.addEventListener('change', fn); else if (m.addListener) m.addListener(fn); };
+const isPhone = () => !!mqPhone.matches;
+
 /* ---------- состояние ---------- */
 const S = SIM.createState();
 SIM.applySolution(S, SIM.solveTrim(S));
 for (let i = 0; i < 160; i++) SIM.step(S, 0.05);
 S.events.length = 0;
-const ui = { view: 'free', showWind: true, selItem: null, autoHints: !!store.get('autoHints', false), showTargets: false, targets: null, tgtT: -9,
-  anim: null, completed: store.get('done', {}) || {}, todoOpen: false, sel: null, selSig: '', hlKey: undefined, dialDrag: false };
+const ui = {
+  view: isPhone() ? 'auto' : 'free', lastFocus: 'all', showWind: true, tab: 'ctl',
+  selItem: null, autoHints: !!store.get('autoHints', false), showTargets: false, targets: null, tgtT: -9,
+  anim: null, completed: store.get('done', {}) || {}, todoOpen: false, bannerOpen: false,
+  sel: null, selSig: '', selHint: false, hlKey: undefined, dialDrag: false, openHints: {},
+  stageFrac: clamp(+store.get('stageFrac', 0.44) || 0.44, 0.22, 0.72), stripDrag: null, stripMoved: false
+};
+// «Эффект»: что изменили последним и какими были приборы до изменения
+const eff = { name: null, snap: null, last: -1e9 };
+const EFF_HOLD = 12;
 
 /* ---------- 3D ---------- */
 let scene = null;
@@ -31,12 +47,24 @@ try { if (G.THREE && G.KScene) scene = G.KScene.createScene($('#gl')); } catch (
 if (!scene) $('#loading p').textContent = '3D-вид не запустился: браузер не поддерживает WebGL или библиотека не загрузилась. Приборы, колдунчики, оценка и сценарии работают.';
 function hl(key) { if (scene && ui.hlKey !== key) { ui.hlKey = key; scene.highlight(key); } }
 function resize() { if (!scene) return; const r = $('#stage').getBoundingClientRect(); scene.resize(Math.max(1, r.width), Math.max(1, r.height)); }
+function camFocus(key) { if (scene && key && ui.view === 'auto') { scene.focus(key); ui.lastFocus = key; } }
+function effectTouch(name, focusKey) {
+  const D = S.D; if (!D) return;
+  if (eff.name !== name || S.t - eff.last > EFF_HOLD) {
+    eff.name = name;
+    eff.snap = { bsp: D.bsp, heel: Math.abs(D.heel), twa: D.twaAbs, awa: D.awaAbs, score: D.score };
+    camFocus(focusKey);
+  }
+  eff.last = S.t;
+}
+const effActive = () => !!eff.name && S.t - eff.last < EFF_HOLD;
 
 /* ---------- всплывающие сообщения ---------- */
 function toast(text, kind, ms) {
   const host = $('#toasts'), el = document.createElement('div');
   el.className = `toast glass ${kind || 'info'}`; el.textContent = text; host.appendChild(el);
-  while (host.children.length > 3) host.firstChild.remove();
+  const max = isPhone() ? 2 : 3;
+  while (host.children.length > max) host.firstChild.remove();
   setTimeout(() => { el.style.transition = 'opacity .4s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 450); }, ms || 4200);
 }
 
@@ -53,39 +81,64 @@ function holdable(el, start, end) {
   el.addEventListener('contextmenu', e => e.preventDefault());
 }
 
-/* ---------- руль и камера ---------- */
-holdable($('#hLeft'), () => { S.helm.auto = null; S.helm.cmd = -1; }, () => { S.helm.cmd = 0; });
-holdable($('#hRight'), () => { S.helm.auto = null; S.helm.cmd = 1; }, () => { S.helm.cmd = 0; });
-holdable($('#hUp'), () => { S.helm.auto = null; S.helm.cmd = S.D ? sgn(S.D.twa) : 1; }, () => { S.helm.cmd = 0; });
-holdable($('#hDown'), () => { S.helm.auto = null; S.helm.cmd = S.D ? -sgn(S.D.twa) : -1; }, () => { S.helm.cmd = 0; });
+/* ---------- руль ---------- */
+const helmOn = cmd => () => { S.helm.auto = null; S.helm.cmd = typeof cmd === 'function' ? cmd() : cmd; effectTouch('Руль', null); };
+const helmOff = () => { S.helm.cmd = 0; };
+holdable($('#hLeft'), helmOn(-1), helmOff);
+holdable($('#hRight'), helmOn(1), helmOff);
+holdable($('#hUp'), helmOn(() => (S.D ? sgn(S.D.twa) : 1)), helmOff);
+holdable($('#hDown'), helmOn(() => (S.D ? -sgn(S.D.twa) : -1)), helmOff);
 $('#hTack').addEventListener('click', () => {
-  if (!SIM.startManeuver(S, 'tack')) toast('Оверштаг делают с острых курсов: ветер должен быть впереди траверза.', 'warn');
-  else if (S.mode === 'deck') toast('Поворот начат. Когда стаксель заполощет — отдайте рабочий шкот и выберите шкот другого борта.', 'info', 5500);
+  if (!SIM.startManeuver(S, 'tack')) { toast('Оверштаг делают с острых курсов: ветер должен быть впереди траверза.', 'warn'); return; }
+  effectTouch('Поворот оверштаг', null);
+  if (S.mode === 'deck') toast('Поворот начат. Когда стаксель заполощет — отдайте рабочий шкот и выберите шкот другого борта.', 'info', 5500);
 });
 $('#hGybe').addEventListener('click', () => {
   if (!SIM.startManeuver(S, 'gybe')) { toast('Поворот фордевинд делают с полных курсов: ветер должен быть сзади.', 'warn'); return; }
+  effectTouch('Поворот фордевинд', null);
   if (S.rig.main > 0.25) toast('Гика-шкот потравлен — гик перебросит резко. Перед поворотом выберите его почти до центра.', 'warn', 5500);
 });
 document.addEventListener('keydown', e => {
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || (t.getAttribute && t.getAttribute('role') === 'slider'))) return;
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); S.helm.auto = null; S.helm.cmd = e.key === 'ArrowLeft' ? -1 : 1; S.helm.fine = e.shiftKey; }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault(); S.helm.auto = null; S.helm.cmd = e.key === 'ArrowLeft' ? -1 : 1; S.helm.fine = e.shiftKey;
+    if (!e.repeat) effectTouch('Руль', null);
+  }
 });
 document.addEventListener('keyup', e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { S.helm.cmd = 0; S.helm.fine = false; } });
-$$('#camBar [data-view]').forEach(b => b.addEventListener('click', () => {
-  ui.view = b.dataset.view;
-  $$('#camBar [data-view]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
-  if (scene) scene.setView(ui.view);
-}));
+
+/* ---------- камера ---------- */
+function setView(v, instant) {
+  ui.view = v;
+  $$('#camBar [data-view]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.view === v)));
+  if (v === 'auto') ui.lastFocus = 'all';
+  if (scene) scene.setView(v, { instant: !!instant, focus: 'all' });
+}
+function closeCamMenu() { $('#camBar').classList.remove('open'); $('#camBtn').setAttribute('aria-expanded', 'false'); }
+$$('#camBar [data-view]').forEach(b => b.addEventListener('click', () => { setView(b.dataset.view); closeCamMenu(); }));
+$('#camBtn').addEventListener('click', () => {
+  const open = !$('#camBar').classList.contains('open');
+  $('#camBar').classList.toggle('open', open);
+  $('#camBtn').setAttribute('aria-expanded', String(open));
+});
+document.addEventListener('pointerdown', e => {
+  if (!$('#camBar').classList.contains('open') || e.target.closest('#camBar, #camBtn')) return;
+  closeCamMenu();
+});
 $('#btnWindVis').addEventListener('click', e => { ui.showWind = !ui.showWind; e.currentTarget.setAttribute('aria-pressed', String(ui.showWind)); });
 function togglePause() { S.paused = !S.paused; const b = $('#btnPause'); b.setAttribute('aria-pressed', String(S.paused)); b.textContent = S.paused ? 'Продолжить' : 'Пауза'; }
 $('#btnPause').addEventListener('click', togglePause);
 
 /* ---------- вкладки и режимы ---------- */
-$$('.tabs button').forEach(b => b.addEventListener('click', () => {
-  $$('.tabs button').forEach(x => x.setAttribute('aria-selected', String(x === b)));
-  $$('.pane').forEach(p => { p.hidden = p.dataset.pane !== b.dataset.tab; });
-}));
+function setTab(tab) {
+  if (tab === 'score' && !isPhone()) tab = 'ctl';
+  ui.tab = tab;
+  $$('.tabs button').forEach(x => x.setAttribute('aria-selected', String(x.dataset.tab === tab)));
+  $$('.pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
+  $('#scoreCard').hidden = isPhone() && tab !== 'score';
+}
+$$('.tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
 function setMode(m) {
   SIM.setMode(S, m);
   $('#modeQuick').setAttribute('aria-pressed', String(m === 'quick'));
@@ -100,52 +153,71 @@ function setMode(m) {
 $('#modeQuick').addEventListener('click', () => setMode('quick'));
 $('#modeDeck').addEventListener('click', () => setMode('deck'));
 
+/* ---------- оценка: общие помощники ---------- */
+const ST_TXT = { ok: 'хорошо', warn: 'можно лучше', bad: 'плохо', na: 'не оценивается' };
+const ST_SYM = { ok: '✓', warn: '!', bad: '✕', na: '–' };
+const itemOf = (D, id) => (D ? D.items.find(x => x.id === id) : null);
+function setSt(btn, it) { const st = it ? it.status : 'na'; btn.className = `st st-${st}`; btn.textContent = ST_SYM[st]; }
+function fillHint(box, it) {
+  const st = it ? it.status : 'na';
+  box.className = `ihint st-${st}`;
+  box.querySelector('b').textContent = it ? it.name : '';
+  box.querySelector('span').textContent = ST_TXT[st];
+  box.querySelector('.diag').textContent = it ? (it.diag || '') : '';
+  box.querySelector('.act').textContent = it && st !== 'ok' && st !== 'na' ? (it.act || '') : '';
+}
+const stBtn = (id, label) => `<button type="button" class="st st-na" id="st_${id}" aria-expanded="false" aria-controls="ih_${id}" title="Оценка: ${label}. Нажмите — подсказка">–</button>`;
+const ihintHtml = id => `<div class="ihint" id="ih_${id}" hidden><div class="ih-h"><b></b><span></span></div><p class="diag"></p><p class="act"></p></div>`;
+
 /* ---------- быстрые настройки ---------- */
 const QS = [
   { title: 'Стаксель (генуя)', extra: 'goose', items: [
-    { key: 'jibSheet', label: 'Шкот стакселя', min: 0, max: 1, step: 0.005, ends: ['выбран', 'потравлен'], hl: () => (S.D && S.D.jib.fill > 0 ? 'sheetS' : 'sheetP'), out: () => (S.D ? `стаксель ${r0(Math.abs(S.D.jib.delta))}° к ДП` : '') },
-    { key: 'car', label: 'Каретка стакселя', min: 0, max: 1, step: 1 / 14, ends: ['вперёд', 'назад'], hl: () => (S.D && S.D.jib.fill > 0 ? 'carS' : 'carP'), out: v => `отверстие ${r0(v * 14) + 1} из 15` },
-    { key: 'open', label: 'Раскрытие стакселя', min: 0, max: 1, step: 0.01, ends: ['закручен', 'раскрыт'], hl: () => 'furl', out: v => pct(v) }
+    { key: 'jibSheet', label: 'Шкот стакселя', item: 'jibAoA', focus: 'trim', min: 0, max: 1, step: 0.005, ends: ['выбран', 'потравлен'], hl: () => (S.D && S.D.jib.fill > 0 ? 'sheetS' : 'sheetP'), out: () => (S.D ? `стаксель ${r0(Math.abs(S.D.jib.delta))}° к ДП` : '') },
+    { key: 'car', label: 'Каретка стакселя', item: 'jibTwist', focus: 'jibTwist', min: 0, max: 1, step: 1 / 14, ends: ['вперёд', 'назад'], hl: () => (S.D && S.D.jib.fill > 0 ? 'carS' : 'carP'), out: v => `отверстие ${r0(v * 14) + 1} из 15` },
+    { key: 'open', label: 'Раскрытие стакселя', item: 'furl', focus: 'area', min: 0, max: 1, step: 0.01, ends: ['закручен', 'раскрыт'], hl: () => 'furl', out: v => pct(v) }
   ] },
   { title: 'Грот', extra: 'reef', items: [
-    { key: 'mainsheet', label: 'Гика-шкот', min: 0, max: 1, step: 0.005, ends: ['выбран', 'потравлен'], hl: () => 'main', out: () => `гик ${r0(Math.abs(S.boomAngle))}°` },
-    { key: 'travLee', label: 'Погон гика-шкота', min: -1, max: 1, step: 0.02, ends: ['на ветер', 'центр', 'под ветер'], hl: () => 'trav', out: v => (v > 0.02 ? `${pct(v)} под ветер` : v < -0.02 ? `${pct(-v)} на ветер` : 'по центру') },
-    { key: 'vang', label: 'Оттяжка гика', min: 0, max: 1, step: 0.01, ends: ['слабо', 'туго'], hl: () => 'vang', out: pct },
-    { key: 'outhaul', label: 'Аутхол', min: 0, max: 1, step: 0.01, ends: ['пузатый низ', 'плоский низ'], hl: () => 'outhaul', out: pct },
-    { key: 'luff', label: 'Фал грота — натяжение', min: 0, max: 1, step: 0.01, ends: ['слабо', 'туго'], hl: () => 'halyard', out: pct }
+    { key: 'mainsheet', label: 'Гика-шкот', item: 'mainAoA', focus: 'trim', min: 0, max: 1, step: 0.005, ends: ['выбран', 'потравлен'], hl: () => 'main', out: () => `гик ${r0(Math.abs(S.boomAngle))}°` },
+    { key: 'travLee', label: 'Погон гика-шкота', item: 'mainAoA', focus: 'trim', min: -1, max: 1, step: 0.02, ends: ['на ветер', 'центр', 'под ветер'], hl: () => 'trav', out: v => (v > 0.02 ? `${pct(v)} под ветер` : v < -0.02 ? `${pct(-v)} на ветер` : 'по центру') },
+    { key: 'vang', label: 'Оттяжка гика', item: 'mainTwist', focus: 'twist', min: 0, max: 1, step: 0.01, ends: ['слабо', 'туго'], hl: () => 'vang', out: pct },
+    { key: 'outhaul', label: 'Аутхол', item: 'depth', focus: 'shape', min: 0, max: 1, step: 0.01, ends: ['пузатый низ', 'плоский низ'], hl: () => 'outhaul', out: pct },
+    { key: 'luff', label: 'Фал грота — натяжение', name: 'Фал грота', item: 'luff', focus: 'shape', min: 0, max: 1, step: 0.01, ends: ['слабо', 'туго'], hl: () => 'halyard', out: pct }
   ] },
   { title: 'Рангоут', items: [
-    { key: 'backstay', label: 'Ахтерштаг', min: 0, max: 1, step: 0.01, ends: ['потравлен', 'туго'], hl: () => 'backstay', out: pct }
+    { key: 'backstay', label: 'Ахтерштаг', item: 'depth', focus: 'shape', min: 0, max: 1, step: 0.01, ends: ['потравлен', 'туго'], hl: () => 'backstay', out: pct }
   ] }
 ];
-const QKEYS = QS.flatMap(g => g.items.map(c => c.key));
+const QCTL = QS.flatMap(g => g.items);
+const QKEYS = QCTL.map(c => c.key);
+const CTL_ITEM = Object.assign({ reef: 'reef' }, Object.fromEntries(QCTL.map(c => [c.key, c.item])));
 function buildQuick() {
   let html = '';
   for (const g of QS) {
     html += `<div class="group"><h3>${g.title}</h3>`;
     for (const c of g.items) {
-      html += `<div class="ctl"><div class="ctl-top"><label for="q_${c.key}">${c.label}</label><output id="o_${c.key}"></output></div>` +
+      html += `<div class="ctl"><div class="ctl-top"><label for="q_${c.key}">${c.label}</label>${stBtn(c.key, c.name || c.label)}<output id="o_${c.key}"></output></div>` +
         `<div class="range"><span class="tgt" id="t_${c.key}" hidden></span><input type="range" id="q_${c.key}" min="${c.min}" max="${c.max}" step="${c.step}"></div>` +
-        `<div class="ends">${c.ends.map(e => `<span>${e}</span>`).join('')}</div></div>`;
+        `<div class="ends">${c.ends.map(e => `<span>${e}</span>`).join('')}</div>${ihintHtml(c.key)}</div>`;
     }
     if (g.extra === 'goose') html += '<div class="toggle-row" id="gooseRow" hidden><label class="check"><input type="checkbox" id="q_goose"> Бабочка: стаксель на выносном гике на другой борт</label></div>';
-    if (g.extra === 'reef') html += '<div class="ctl"><div class="ctl-top"><span style="font-weight:500">Рифы</span><output id="o_reef"></output></div><div class="seg" id="reefSeg" role="group" aria-label="Рифы"><button type="button" data-reef="0">Полный грот</button><button type="button" data-reef="1">1-й риф</button><button type="button" data-reef="2">2-й риф</button></div></div>';
+    if (g.extra === 'reef') html += `<div class="ctl"><div class="ctl-top"><span class="lbl-b">Рифы</span>${stBtn('reef', 'Рифы')}<output id="o_reef"></output></div><div class="seg" id="reefSeg" role="group" aria-label="Рифы"><button type="button" data-reef="0">Полный грот</button><button type="button" data-reef="1">1-й риф</button><button type="button" data-reef="2">2-й риф</button></div>${ihintHtml('reef')}</div>`;
     html += '</div>';
   }
   $('#quickGroups').innerHTML = html;
-  for (const g of QS) for (const c of g.items) {
+  for (const c of QCTL) {
     const el = $('#q_' + c.key);
     el.value = S.quick[c.key];
-    el.addEventListener('input', () => { S.quick[c.key] = parseFloat(el.value); ui.anim = null; });
+    el.addEventListener('input', () => { S.quick[c.key] = parseFloat(el.value); ui.anim = null; hl(c.hl()); effectTouch(c.name || c.label, c.focus); });
     el.addEventListener('pointerdown', () => hl(c.hl()));
     el.addEventListener('focus', () => hl(c.hl()));
   }
-  $('#q_goose').addEventListener('change', e => { S.quick.goose = e.target.checked; });
-  $$('#reefSeg button').forEach(b => b.addEventListener('click', () => { S.quick.reef = +b.dataset.reef; ui.anim = null; }));
+  $('#q_goose').addEventListener('change', e => { S.quick.goose = e.target.checked; effectTouch('Бабочка', 'trim'); });
+  $$('#reefSeg button').forEach(b => b.addEventListener('click', () => { S.quick.reef = +b.dataset.reef; ui.anim = null; hl('reef1'); effectTouch('Рифы', 'area'); }));
+  $$('#quickGroups .st').forEach(b => b.addEventListener('click', () => { const k = b.id.slice(3); ui.openHints[k] = !ui.openHints[k]; updateCtlStatus(S.D); }));
   $('#showTargets').addEventListener('change', e => { ui.showTargets = e.target.checked; ui.tgtT = -9; });
 }
 function syncSliders(force) {
-  for (const g of QS) for (const c of g.items) {
+  for (const c of QCTL) {
     const el = $('#q_' + c.key), v = S.quick[c.key];
     if (force || ui.anim || document.activeElement !== el) el.value = v;
     $('#o_' + c.key).textContent = c.out(v);
@@ -156,21 +228,33 @@ function syncSliders(force) {
   $('#gooseRow').hidden = !showGoose && !S.quick.goose;
   $('#q_goose').checked = !!S.quick.goose;
 }
+function updateCtlStatus(D) {
+  if (!D) return;
+  for (const k in CTL_ITEM) {
+    const b = $('#st_' + k); if (!b) continue;
+    const it = itemOf(D, CTL_ITEM[k]), open = !!ui.openHints[k];
+    setSt(b, it); b.setAttribute('aria-expanded', String(open));
+    const box = $('#ih_' + k);
+    box.hidden = !open;
+    if (open) fillHint(box, it);
+  }
+}
 function updateTargets() {
   if (!ui.showTargets) { if (ui.targets) { ui.targets = null; $$('.tgt').forEach(t => { t.hidden = true; }); } return; }
   if (S.t - ui.tgtT > 0.5) { ui.targets = SIM.solveTrim(S); ui.tgtT = S.t; }
   const T = ui.targets;
-  for (const g of QS) for (const c of g.items) {
+  for (const c of QCTL) {
     const t = $('#t_' + c.key);
     t.hidden = false; t.style.left = `${clamp((T[c.key] - c.min) / (c.max - c.min), 0, 1) * 100}%`;
   }
 }
 $('#btnSolve').addEventListener('click', () => {
   const T = SIM.solveTrim(S);
+  effectTouch('Правильная настройка', null);
   if (S.mode === 'quick') {
     ui.anim = { from: Object.assign({}, S.quick), to: T, t: 0, dur: 1.4 };
     S.quick.reef = T.reef; S.quick.goose = T.goose;
-    toast('Паруса выставляются по ветру — посмотрите, что меняется на шкалах и в колдунчиках.', 'info');
+    toast('Паруса выставляются по ветру — посмотрите, что меняется в 3D, колдунчиках и на шкалах.', 'info');
   } else {
     ui.showTargets = true; $('#showTargets').checked = true; ui.tgtT = -9;
     toast('Зелёные метки на шкалах снастей — правильные значения. Выставьте их стопорами и лебёдками.', 'info', 5500);
@@ -184,8 +268,6 @@ function stepAnim(dt) {
 }
 
 /* ---------- оценка ---------- */
-const ST_TXT = { ok: 'хорошо', warn: 'можно лучше', bad: 'плохо', na: 'не оценивается' };
-const ST_SYM = { ok: '✓', warn: '!', bad: '✕', na: '–' };
 function buildItems() {
   $('#items').innerHTML = SIM.ITEM_DEFS.map(d => `<button type="button" class="item st-na" data-id="${d.id}" aria-pressed="false"><span class="dot">–</span><span class="nm">${d.name}<small>${d.sub}</small></span></button>`).join('');
   $$('#items .item').forEach(b => b.addEventListener('click', () => { ui.selItem = ui.selItem === b.dataset.id ? null : b.dataset.id; updateScore(S.D); }));
@@ -208,7 +290,7 @@ function updateScore(D) {
   Array.from(bar.children).forEach((i, k) => i.classList.toggle('on', k < on));
   $('#scoreSub').textContent = `${D.pos} · ${D.tack > 0 ? 'правый' : 'левый'} галс · ${f1(D.bsp)} уз из ${f1(D.polar)} по поляре`;
   for (const b of $$('#items .item')) {
-    const it = D.items.find(x => x.id === b.dataset.id);
+    const it = itemOf(D, b.dataset.id);
     b.hidden = !it;
     if (!it) continue;
     b.className = `item st-${it.status}`;
@@ -217,11 +299,11 @@ function updateScore(D) {
     b.title = `${it.name}: ${ST_TXT[it.status]}`;
   }
   let id = ui.selItem;
-  if (id && !D.items.find(x => x.id === id)) id = ui.selItem = null;
+  if (id && !itemOf(D, id)) id = ui.selItem = null;
   if (!id && ui.autoHints && D.top) id = D.top.id;
   const box = $('#hintBox');
   if (!id) { box.hidden = true; return; }
-  const it = D.items.find(x => x.id === id);
+  const it = itemOf(D, id);
   box.hidden = false; box.className = `hint st-${it.status}`;
   $('#hintName').textContent = it.name;
   $('#hintSt').textContent = ST_TXT[it.status];
@@ -233,7 +315,7 @@ function updateScore(D) {
 function updateHud(D) {
   $('#hBsp').innerHTML = `${f1(D.bsp)}<small>уз</small>`;
   $('#hVmg').innerHTML = D.twaAbs < 90 ? `VMG к ветру <b>${f1(D.vmg)}</b>` : `VMG от ветра <b>${f1(-D.vmg)}</b>`;
-  $('#hHdg').textContent = deg3(D.hdg); $('#hHdg2').textContent = deg3(D.hdg);
+  $('#hHdg').textContent = deg3(D.hdg);
   $('#hPos').textContent = D.pos;
   $('#hTws').innerHTML = `${f1(D.tws)}<small>уз</small>`;
   $('#hTwa').innerHTML = `<b>${r0(D.twaAbs)}°</b> ${D.tack > 0 ? 'пр.' : 'лев.'} галс · с ${deg3(D.twd)}`;
@@ -241,6 +323,42 @@ function updateHud(D) {
   $('#hAwa').innerHTML = `<b>${r0(D.awaAbs)}°</b> ${D.awa >= 0 ? 'справа' : 'слева'}`;
   $('#hHeel').textContent = `${r0(Math.abs(D.heel))}°`;
   $('#hRud').innerHTML = D.rudder > 0.7 ? `руль <b>${r0(D.rudder)}°</b> к ветру` : D.rudder < -0.7 ? `руль <b>${r0(-D.rudder)}°</b> от ветра` : 'руль нейтрален';
+}
+const sgnTxt = (v, d, u) => `${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}${u || ''}`;
+function stripCell(id, txt, cls, hot) {
+  const d = $('#d' + id); d.textContent = txt; d.className = 'd' + (cls ? ' ' + cls : '');
+  $('#c' + id).classList.toggle('hot', !!hot);
+}
+function updateStrip(D) {
+  $('#sBsp').textContent = f1(D.bsp);
+  $('#sHeel').textContent = `${r0(Math.abs(D.heel))}°`;
+  $('#sTwa').textContent = `${r0(D.twaAbs)}°`;
+  $('#sAwa').textContent = `${r0(D.awaAbs)}°`;
+  const sc = r0(D.score * 100), sEl = $('#sScore');
+  sEl.textContent = `${sc}%`; sEl.className = sc >= 85 ? 'ok' : sc >= 60 ? 'warn' : 'bad';
+  const on = effActive();
+  if (on) {
+    const s = eff.snap, same = 'без изм.';
+    const dB = D.bsp - s.bsp, dH = Math.abs(D.heel) - s.heel, dT = D.twaAbs - s.twa, dA = D.awaAbs - s.awa, dS = (D.score - s.score) * 100;
+    const b = Math.abs(dB) >= 0.05, h = Math.abs(dH) >= 0.5, t = Math.abs(dT) >= 0.5, a = Math.abs(dA) >= 0.5, q = Math.abs(dS) >= 0.5;
+    stripCell('Bsp', b ? sgnTxt(dB, 1) : same, b ? (dB > 0 ? 'good' : 'bad') : '', b);
+    stripCell('Heel', h ? sgnTxt(dH, 0, '°') : same, h ? (dH > 0 && Math.abs(D.heel) > 20 ? 'bad' : 'chg') : '', h);
+    stripCell('Twa', t ? sgnTxt(dT, 0, '°') : same, t ? 'chg' : '', t);
+    stripCell('Awa', a ? sgnTxt(dA, 0, '°') : same, a ? 'chg' : '', a);
+    stripCell('Score', q ? sgnTxt(dS, 0, '%') : same, q ? (dS > 0 ? 'good' : 'bad') : '', q);
+  } else {
+    stripCell('Bsp', `из ${f1(D.polar)}`, '', false);
+    stripCell('Heel', `руль ${r0(Math.max(0, D.rudder))}°`, '', false);
+    stripCell('Twa', `${f1(D.tws)} уз`, '', false);
+    stripCell('Awa', `${f1(D.aws)} уз`, '', false);
+    stripCell('Score', sc >= 85 ? 'хорошо' : sc >= 60 ? 'средне' : 'плохо', '', false);
+  }
+  $('#effChip').hidden = !on;
+  if (on) {
+    $('#effName').textContent = eff.name;
+    const tr = D.bspTarget - D.bsp;
+    $('#effTrend').textContent = Math.abs(tr) > 0.15 ? (tr > 0 ? 'скорость растёт…' : 'скорость падает…') : 'скорость установилась';
+  }
 }
 function fitCanvas(cv) {
   const dpr = Math.min(G.devicePixelRatio || 1, 2), w = cv.clientWidth, h = cv.clientHeight;
@@ -285,14 +403,17 @@ function drawWindDial(D) {
   g.fillStyle = '#eaf3f6'; g.font = `700 ${R * 0.27}px ${FONT}`; g.fillText(`${r0(D.awaAbs)}°`, cx, cy - R * 0.03);
   g.fillStyle = 'rgba(234,243,246,0.72)'; g.font = `600 ${R * 0.13}px ${FONT}`; g.fillText(`ист. ${r0(D.twaAbs)}°`, cx, cy + R * 0.2);
 }
+
+/* ---------- колдунчики (2D-табло) ---------- */
 const TELL_TXT = { ok: 'ровно', wind: 'трепещут наветренные', luff: 'заполаскивает', lee: 'срыв подветренных', stall: 'срыв потока', limp: 'в тени грота', aback: 'на ветру', flog: 'полощет', pole: 'бабочка' };
 const TELL_MODE = { ok: ['stream', 'stream'], wind: ['flutter', 'stream'], luff: ['whip', 'flutter'], lee: ['stream', 'lift'], stall: ['stream', 'curl'], limp: ['hang', 'hang'], aback: ['whip', 'whip'], flog: ['whip', 'whip'], pole: ['curl', 'curl'] };
 const RIB = { stream: [0, 0.07, 7], flutter: [-0.95, 0.55, 17], whip: [-0.5, 1.2, 25], lift: [-1.05, 0.3, 5], curl: [-2.3, 0.35, 3], hang: [1.45, 0.1, 2] };
 let tellT = 0;
 const leechVis = [0, 0, 0, 0], leechSeed = [0.7, 2.3, 3.9, 5.1];
-function ribbon(g, x, y, mode, color, len, seed) {
+const tellDot = st => (st === 'ok' ? '#3cd18a' : (st === 'wind' || st === 'lee' || st === 'pole' || st === 'limp') ? '#f2be4b' : '#ff7b6e');
+function ribbon(g, x, y, mode, color, len, seed, lw) {
   const P = RIB[mode] || RIB.stream;
-  g.strokeStyle = color; g.lineWidth = 3; g.lineCap = 'round'; g.lineJoin = 'round';
+  g.strokeStyle = color; g.lineWidth = lw || 3; g.lineCap = 'round'; g.lineJoin = 'round';
   g.beginPath(); g.moveTo(x, y);
   let px = x, py = y;
   for (let i = 1; i <= 7; i++) {
@@ -301,17 +422,21 @@ function ribbon(g, x, y, mode, color, len, seed) {
   }
   g.stroke();
 }
-function drawTell(D, dt) {
-  const c = fitCanvas($('#tellCanvas')); if (!c || !D) return;
-  const { g, w, h } = c;
-  tellT += dt;
+function updateLeech(D) {
+  for (let idx = 0; idx < 4; idx++) {
+    const p = D.tell.main[idx];
+    const wob = 0.5 + 0.5 * Math.sin(tellT * 0.9 + leechSeed[idx]) * Math.sin(tellT * 0.37 + leechSeed[idx] * 2);
+    leechVis[idx] += ((p > wob ? 1 : 0) - leechVis[idx]) * 0.12;
+  }
+}
+const jibCols = D => (D.jib.fill < 0 ? ['#2bbf6a', '#ec4a50'] : ['#ec4a50', '#2bbf6a']);
+function drawTellFull(g, w, h, D) {
   g.save(); g.scale(w / 236, h / 150);
   g.textAlign = 'left'; g.textBaseline = 'middle';
   g.font = `700 10px ${FONT}`; g.fillStyle = '#93b2c0';
   g.fillText('СТАКСЕЛЬ', 4, 8); g.fillText('ГРОТ', 168, 8);
   g.font = `600 10px ${FONT}`; g.fillText('наветр.', 52, 23); g.fillText('подветр.', 98, 23);
-  const fill = D.jib.fill;
-  const winCol = fill < 0 ? '#2bbf6a' : '#ec4a50', leeCol = fill < 0 ? '#ec4a50' : '#2bbf6a';
+  const [winCol, leeCol] = jibCols(D);
   [['верх', 2], ['сред.', 1], ['низ', 0]].forEach(([name, i], r) => {
     const y = 44 + r * 33;
     g.fillStyle = 'rgba(234,243,246,0.86)'; g.font = `600 11px ${FONT}`; g.fillText(name, 4, y);
@@ -321,8 +446,7 @@ function drawTell(D, dt) {
     g.beginPath(); g.moveTo(50, y - 9); g.lineTo(50, y + 9); g.moveTo(96, y - 9); g.lineTo(96, y + 9); g.stroke();
     ribbon(g, 51, y, m[0], winCol, 34, i * 1.7);
     ribbon(g, 97, y, m[1], leeCol, 34, i * 2.3 + 1);
-    g.fillStyle = st === 'ok' ? '#3cd18a' : (st === 'wind' || st === 'lee' || st === 'pole' || st === 'limp') ? '#f2be4b' : '#ff7b6e';
-    g.beginPath(); g.arc(146, y, 3.6, 0, Math.PI * 2); g.fill();
+    g.fillStyle = tellDot(st); g.beginPath(); g.arc(146, y, 3.6, 0, Math.PI * 2); g.fill();
   });
   const xl = y => 172 + 34 * (y - 18) / 124;
   g.strokeStyle = 'rgba(234,243,246,0.35)'; g.lineWidth = 1.5;
@@ -331,12 +455,70 @@ function drawTell(D, dt) {
   [0.86, 0.64, 0.42, 0.2].forEach((vv, k) => {
     const idx = 3 - k, y = 142 - vv * 124, x = xl(y);
     if (hp.headH < 0.3 || vv < hp.sBottom + 0.03) return;
-    const p = D.tell.main[idx];
-    const wob = 0.5 + 0.5 * Math.sin(tellT * 0.9 + leechSeed[idx]) * Math.sin(tellT * 0.37 + leechSeed[idx] * 2);
-    leechVis[idx] += ((p > wob ? 1 : 0) - leechVis[idx]) * 0.12;
     ribbon(g, x, y, leechVis[idx] > 0.5 ? 'curl' : 'stream', '#f2552c', 26, idx * 1.3);
   });
   g.restore();
+}
+function drawTellCompact(g, w, h, D) {
+  g.save(); g.scale(w / 140, h / 66);
+  g.textAlign = 'left'; g.textBaseline = 'middle';
+  g.font = `600 8.5px ${FONT}`; g.fillStyle = '#93b2c0';
+  g.fillText('наветр.', 6, 6); g.fillText('подветр.', 40, 6); g.fillText('грот', 104, 6);
+  const [winCol, leeCol] = jibCols(D);
+  if (S.rig.furl >= 0.97) { g.fillStyle = '#93b2c0'; g.font = `600 10px ${FONT}`; g.fillText('стаксель закручен', 6, 36); }
+  else [2, 1, 0].forEach((i, r) => {
+    const y = 21 + r * 16, st = D.tell.jib[i], m = TELL_MODE[st] || TELL_MODE.ok;
+    g.strokeStyle = 'rgba(234,243,246,0.3)'; g.lineWidth = 1.2;
+    g.beginPath(); g.moveTo(5, y - 6); g.lineTo(5, y + 6); g.moveTo(39, y - 6); g.lineTo(39, y + 6); g.stroke();
+    ribbon(g, 6, y, m[0], winCol, 27, i * 1.7, 2.4);
+    ribbon(g, 40, y, m[1], leeCol, 27, i * 2.3 + 1, 2.4);
+    g.fillStyle = tellDot(st); g.beginPath(); g.arc(80, y, 3, 0, Math.PI * 2); g.fill();
+  });
+  g.strokeStyle = 'rgba(234,243,246,0.35)'; g.lineWidth = 1.2;
+  g.beginPath(); g.moveTo(98, 13); g.lineTo(120, 63); g.stroke();
+  const hp = D.hoist;
+  [0.86, 0.64, 0.42, 0.2].forEach((vv, k) => {
+    const idx = 3 - k;
+    if (hp.headH < 0.3 || vv < hp.sBottom + 0.03) return;
+    const y = 63 - vv * 50, x = 120 - vv * 22;
+    ribbon(g, x, y, leechVis[idx] > 0.5 ? 'curl' : 'stream', '#f2552c', 14, idx * 1.3, 2.2);
+  });
+  g.restore();
+}
+function drawTell(D, dt) {
+  const c = fitCanvas($('#tellCanvas')); if (!c || !D) return;
+  tellT += dt; updateLeech(D);
+  if (c.w < 200) drawTellCompact(c.g, c.w, c.h, D); else drawTellFull(c.g, c.w, c.h, D);
+}
+$('#tellCard').addEventListener('click', () => { if (isPhone()) $('#tellCard').classList.toggle('min'); });
+
+/* ---------- полоса приборов: перетаскивание меняет высоту 3D ---------- */
+function applyStageFrac(f) {
+  ui.stageFrac = clamp(f, 0.22, 0.72);
+  document.documentElement.style.setProperty('--stage-h', `${(ui.stageFrac * 100).toFixed(1)}%`);
+}
+{
+  const strip = $('#strip');
+  strip.addEventListener('pointerdown', e => {
+    ui.stripMoved = false;
+    if (!mqStack.matches) return;
+    const app = $('#app').getBoundingClientRect();
+    ui.stripDrag = { id: e.pointerId, y0: e.clientY, h0: $('#stageWrap').getBoundingClientRect().height, appH: app.height, stripH: strip.getBoundingClientRect().height, moved: false };
+  });
+  strip.addEventListener('pointermove', e => {
+    const d = ui.stripDrag; if (!d || e.pointerId !== d.id) return;
+    const dy = e.clientY - d.y0;
+    if (!d.moved) { if (Math.abs(dy) < 6) return; d.moved = true; ui.stripMoved = true; try { strip.setPointerCapture(e.pointerId); } catch (_) { /* нет захвата */ } }
+    const h = clamp(d.h0 + dy, d.appH * 0.22, Math.max(d.appH * 0.22, d.appH - d.stripH - 110));
+    applyStageFrac(h / d.appH);
+    e.preventDefault();
+  });
+  const end = () => { const d = ui.stripDrag; ui.stripDrag = null; if (d && d.moved) store.set('stageFrac', ui.stageFrac); };
+  strip.addEventListener('pointerup', end); strip.addEventListener('pointercancel', end);
+  $('#cScore').addEventListener('click', () => {
+    if (ui.stripMoved) { ui.stripMoved = false; return; }
+    setTab('score'); $('#panel').scrollTop = 0;
+  });
 }
 
 /* ---------- ветер и курс ---------- */
@@ -354,24 +536,26 @@ function buildWind() {
     '<g id="ddBoat"><path d="M75 50 C 83 60 84 84 81 100 L 69 100 C 66 84 67 60 75 50 Z" fill="var(--ink)" opacity="0.8"/></g>' +
     '<g id="ddWind"><line x1="75" y1="12" x2="75" y2="42" stroke="#2f7fd6" stroke-width="4" stroke-linecap="round"/><path d="M75 52 L66 38 L84 38 Z" fill="#2f7fd6"/><circle cx="75" cy="12" r="8" fill="#2f7fd6"/></g>';
   const ang = e => { const r = svg.getBoundingClientRect(); const x = e.clientX - r.left - r.width / 2, y = e.clientY - r.top - r.height / 2; return r0(wrap360(Math.atan2(x, -y) / D2R)); };
-  svg.addEventListener('pointerdown', e => { try { svg.setPointerCapture(e.pointerId); } catch (_) { /* нет захвата */ } ui.dialDrag = true; SIM.setWind(S, { twd: ang(e) }); });
-  svg.addEventListener('pointermove', e => { if (ui.dialDrag) SIM.setWind(S, { twd: ang(e) }); });
+  const setDir = e => { SIM.setWind(S, { twd: ang(e) }); effectTouch('Направление ветра', null); };
+  svg.addEventListener('pointerdown', e => { try { svg.setPointerCapture(e.pointerId); } catch (_) { /* нет захвата */ } ui.dialDrag = true; setDir(e); });
+  svg.addEventListener('pointermove', e => { if (ui.dialDrag) setDir(e); });
   const stop = () => { ui.dialDrag = false; };
   svg.addEventListener('pointerup', stop); svg.addEventListener('pointercancel', stop);
   svg.addEventListener('keydown', e => {
     const d = (e.key === 'ArrowRight' || e.key === 'ArrowUp') ? 5 : (e.key === 'ArrowLeft' || e.key === 'ArrowDown') ? -5 : 0;
-    if (d) { e.preventDefault(); SIM.setWind(S, { twd: S.wind.baseTwd + d }); }
+    if (d) { e.preventDefault(); SIM.setWind(S, { twd: S.wind.baseTwd + d }); effectTouch('Направление ветра', null); }
   });
   $('#twsR').value = S.wind.baseTws;
-  $('#twsR').addEventListener('input', e => SIM.setWind(S, { tws: parseFloat(e.target.value) }));
+  $('#twsR').addEventListener('input', e => { SIM.setWind(S, { tws: parseFloat(e.target.value) }); effectTouch('Сила ветра', null); });
   $('#gusts').addEventListener('change', e => SIM.setWind(S, { gusts: e.target.checked }));
-  $('#hdgR').addEventListener('input', e => { S.helm.auto = null; S.boat.hdg = parseFloat(e.target.value); });
+  $('#hdgR').addEventListener('input', e => { S.helm.auto = null; S.boat.hdg = parseFloat(e.target.value); effectTouch('Руль', null); });
   $('#shiftBtns').innerHTML = [-20, -10, 10, 20].map(d => `<button type="button" class="btn" data-shift="${d}">${d > 0 ? '+' : '−'}${Math.abs(d)}°<small id="sh_${d}"></small></button>`).join('');
   $$('#shiftBtns [data-shift]').forEach(b => b.addEventListener('click', () => {
     const d = +b.dataset.shift, before = S.D ? S.D.twaAbs : 0;
     SIM.setWind(S, { shift: d, dur: 3 });
     const after = Math.abs(wrap180(S.wind.baseTwd + d - S.boat.hdg));
-    toast(`Ветер ${after < before ? 'заходит' : 'отходит'} на ${Math.abs(d)}°`, 'info');
+    const text = `Ветер ${after < before ? 'заходит' : 'отходит'} на ${Math.abs(d)}°`;
+    toast(text, 'info'); effectTouch(text, null);
   }));
   const rnd = () => { SIM.randomEvent(S); };
   $('#btnRandom').addEventListener('click', rnd);
@@ -399,19 +583,21 @@ function updateWind(D) {
 /* ---------- палуба: схема ---------- */
 const DK = {
   cx: { halyard: 116, reef1: 134, reef2: 152, vang: 170, main: 190, outhaul: 208, furl: 226 },
-  winch: { RP: [122, 172], RS: [238, 172], PP: [72, 300], PS: [288, 300] },
+  winch: { RP: [122, 172], RS: [238, 172], PP: [70, 250], PS: [290, 250] },
   track: { P: 64, S: 296 }
 };
+const DECK_ITEM = { halyard: 'luff', reef1: 'reef', reef2: 'reef', vang: 'mainTwist', main: 'mainAoA', outhaul: 'depth', furl: 'furl', sheetP: 'jibAoA', sheetS: 'jibAoA', car: 'jibTwist', trav: 'mainAoA', bs: 'depth' };
+const DECK_FOCUS = { halyard: 'shape', reef1: 'area', reef2: 'area', vang: 'twist', main: 'trim', outhaul: 'shape', furl: 'area', sheetP: 'trim', sheetS: 'trim', car: 'jibTwist', trav: 'trim', bs: 'shape' };
+const selKey = sel => (sel.kind === 'line' ? sel.key : sel.kind);
 function buildDeck() {
   let s = '<defs><pattern id="teakP" width="7" height="7" patternUnits="userSpaceOnUse"><rect width="7" height="7" fill="var(--teak)" opacity="0.28"/><line x1="0" y1="0" x2="0" y2="7" stroke="var(--teak)" stroke-width="1" opacity="0.55"/></pattern></defs>';
-  s += '<path d="M46 0 C36 130 34 300 50 474 Q52 484 62 484 L298 484 Q308 484 310 474 C326 300 324 130 314 0 Z" fill="var(--deck)" stroke="var(--deck-line)" stroke-width="1.5"/>';
+  s += '<path d="M46 0 C37 112 36 254 50 340 Q52 350 62 350 L298 350 Q308 350 310 340 C324 254 323 112 314 0 Z" fill="var(--deck)" stroke="var(--deck-line)" stroke-width="1.5"/>';
   s += '<path d="M96 0 L96 196 Q96 210 110 210 L250 210 Q264 210 264 196 L264 0" fill="var(--surface)" stroke="var(--deck-line)" stroke-width="1.5"/>';
-  s += '<rect x="94" y="222" width="172" height="244" rx="12" fill="url(#teakP)" stroke="var(--deck-line)"/>';
-  s += '<rect x="94" y="234" width="26" height="150" rx="5" fill="var(--teak)" opacity="0.45"/><rect x="240" y="234" width="26" height="150" rx="5" fill="var(--teak)" opacity="0.45"/>';
-  s += '<rect x="164" y="268" width="32" height="78" rx="5" fill="var(--teak)" opacity="0.6"/>';
+  s += '<rect x="94" y="220" width="172" height="122" rx="12" fill="url(#teakP)" stroke="var(--deck-line)"/>';
+  s += '<rect x="94" y="228" width="24" height="66" rx="5" fill="var(--teak)" opacity="0.45"/><rect x="242" y="228" width="24" height="66" rx="5" fill="var(--teak)" opacity="0.45"/>';
+  s += '<rect x="166" y="232" width="28" height="44" rx="5" fill="var(--teak)" opacity="0.6"/>';
   s += '<rect x="164" y="186" width="32" height="24" rx="3" fill="var(--ink-3)" opacity="0.55"/><text x="180" y="201" font-size="9" text-anchor="middle" style="fill:var(--surface)">вход</text>';
-  for (const [x, y] of [[142, 428], [218, 428]]) s += `<circle cx="${x}" cy="${y}" r="24" fill="none" stroke="var(--ink-2)" stroke-width="2.5"/><line x1="${x - 24}" y1="${y}" x2="${x + 24}" y2="${y}" stroke="var(--ink-3)"/><line x1="${x}" y1="${y - 24}" x2="${x}" y2="${y + 24}" stroke="var(--ink-3)"/>`;
-  s += '<text x="180" y="462" font-size="10" text-anchor="middle">штурвалы</text>';
+  for (const [x, y] of [[142, 304], [218, 304]]) s += `<circle cx="${x}" cy="${y}" r="18" fill="none" stroke="var(--ink-2)" stroke-width="2.5"/><line x1="${x - 18}" y1="${y}" x2="${x + 18}" y2="${y}" stroke="var(--ink-3)"/><line x1="${x}" y1="${y - 18}" x2="${x}" y2="${y + 18}" stroke="var(--ink-3)"/>`;
   s += '<path id="dkSheet_P" d="" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path id="dkSheet_S" d="" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
   s += '<circle cx="180" cy="20" r="9" fill="var(--surface-3)" stroke="var(--ink-2)" stroke-width="1.5"/><text x="194" y="16" font-size="10">мачта</text>';
   for (const k of SIM.CLUTCH_LINES) s += `<path d="M180 28 L${DK.cx[k]} 104" stroke="${LINES[k].color}" stroke-width="1.6" fill="none" opacity="0.7"/>`;
@@ -438,9 +624,9 @@ function buildDeck() {
       `<line class="body" x1="${x}" y1="60" x2="${x}" y2="170" stroke="var(--ink-2)" stroke-width="3" stroke-linecap="round"/>` +
       `<rect id="dkCar_${sd}" x="${x - 6}" y="100" width="12" height="16" rx="2.5" fill="var(--ink)"/></g>`;
   }
-  s += '<g class="hit" data-kind="bs" role="button" tabindex="0" aria-label="Ахтерштаг"><rect x="136" y="440" width="88" height="46" fill="transparent"/><line x1="180" y1="452" x2="180" y2="466" stroke="var(--ink-2)" stroke-width="1.5"/><line x1="180" y1="466" x2="150" y2="484" stroke="var(--ink-2)" stroke-width="1.5"/><line x1="180" y1="466" x2="210" y2="484" stroke="var(--ink-2)" stroke-width="1.5"/><circle class="body" cx="180" cy="466" r="5" fill="var(--surface-3)" stroke="var(--ink-2)"/><text x="188" y="478" font-size="10">ахтерштаг</text></g>';
-  s += '<text x="20" y="250" font-size="11" text-anchor="middle" transform="rotate(-90 20 250)" style="fill:var(--port);font-weight:700;letter-spacing:.08em">ЛЕВЫЙ БОРТ</text>';
-  s += '<text x="340" y="250" font-size="11" text-anchor="middle" transform="rotate(90 340 250)" style="fill:var(--stbd);font-weight:700;letter-spacing:.08em">ПРАВЫЙ БОРТ</text>';
+  s += '<g class="hit" data-kind="bs" role="button" tabindex="0" aria-label="Ахтерштаг"><rect x="150" y="322" width="110" height="30" fill="transparent"/><line x1="180" y1="324" x2="180" y2="334" stroke="var(--ink-2)" stroke-width="1.5"/><line x1="180" y1="334" x2="162" y2="349" stroke="var(--ink-2)" stroke-width="1.5"/><line x1="180" y1="334" x2="198" y2="349" stroke="var(--ink-2)" stroke-width="1.5"/><circle class="body" cx="180" cy="334" r="5" fill="var(--surface-3)" stroke="var(--ink-2)"/><text x="204" y="345" font-size="10">ахтерштаг</text></g>';
+  s += '<text x="20" y="176" font-size="11" text-anchor="middle" transform="rotate(-90 20 176)" style="fill:var(--port);font-weight:700;letter-spacing:.08em">ЛЕВЫЙ БОРТ</text>';
+  s += '<text x="340" y="176" font-size="11" text-anchor="middle" transform="rotate(90 340 176)" style="fill:var(--stbd);font-weight:700;letter-spacing:.08em">ПРАВЫЙ БОРТ</text>';
   s += '<text x="8" y="14" font-size="10">↑ нос</text>';
   const svg = $('#deckSvg');
   svg.innerHTML = s;
@@ -484,16 +670,20 @@ function updateDeck() {
 const loadTxt = v => (v < 0.12 ? 'низкая' : v < 0.45 ? 'средняя' : 'высокая');
 function select(kind, key) {
   ui.sel = kind ? { kind, key } : null;
+  ui.selHint = false;
   $$('#deckSvg .hit').forEach(g => g.classList.toggle('sel', !!ui.sel && g.dataset.kind === kind && (g.dataset.key || '') === (key || '')));
   ui.selSig = '';
   renderSel();
   let h = null;
   if (ui.sel) {
     if (kind === 'line') h = key; else if (kind === 'car') h = 'car' + key; else if (kind === 'trav') h = 'trav'; else if (kind === 'bs') h = 'backstay'; else if (kind === 'winch') h = S.deck.winch[key];
+    camFocus(DECK_FOCUS[selKey(ui.sel)]);
   }
   hl(h);
 }
-function holdBtn(id, hold) { const el = $('#' + id); if (!el) return; holdable(el, () => { S.deck.hold = hold; }, () => { SIM.deckRelease(S); }); }
+function holdBtn(id, hold, name) { const el = $('#' + id); if (!el) return; holdable(el, () => { S.deck.hold = hold; effectTouch(name, null); }, () => { SIM.deckRelease(S); }); }
+const SG_DOT = '<button type="button" class="st st-na" id="sgSt" aria-expanded="false" aria-controls="sgHint" title="Оценка этой настройки. Нажмите — подсказка">–</button>';
+const SG_HINT = '<div class="ihint" id="sgHint" hidden><div class="ih-h"><b></b><span></span></div><p class="diag"></p><p class="act"></p></div>';
 function renderSel() {
   const host = $('#selCard'), sel = ui.sel;
   if (!sel) { host.innerHTML = '<p class="note">Ничего не выбрано. Нажмите на стопор в пианино, лебёдку, каретку стакселя, погон или ахтерштаг.</p>'; return; }
@@ -501,42 +691,44 @@ function renderSel() {
   if (sel.kind === 'line') {
     const L = LINES[sel.key], prim = !!L.primary, side = prim ? (L.primary === 'P' ? -1 : 1) : 0;
     const where = prim ? `основная лебёдка ${L.primary === 'P' ? 'левого' : 'правого'} борта` : `${L.bank === 'P' ? 'левое' : 'правое'} пианино · ${SIM.WINCH_NAMES[SIM.winchFor(sel.key)]}`;
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:${L.color}"></span><h4>${L.name}</h4><span class="where">${where}</span></div><p class="about">${L.about}</p>${gaugeHtml}` +
-      `<div class="acts">${prim ? '' : '<button type="button" class="btn" id="sbClutch"></button>'}<button type="button" class="btn" id="sbWinch"></button>${prim ? '<button type="button" class="btn" id="sbPole"></button>' : ''}</div>` +
-      '<div class="acts"><button type="button" class="btn hold" id="sbPull">⟳ Выбирать</button><button type="button" class="btn hold" id="sbEase">⟲ Травить</button></div>';
+    host.innerHTML = `<div class="sh"><span class="sw" style="background:${L.color}"></span><h4>${L.name}</h4>${SG_DOT}<span class="where">${where}</span></div><p class="about">${L.about}</p>${gaugeHtml}${SG_HINT}` +
+      `<div class="actrow"><div class="acts">${prim ? '' : '<button type="button" class="btn" id="sbClutch"></button>'}<button type="button" class="btn" id="sbWinch"></button>${prim ? '<button type="button" class="btn" id="sbPole"></button>' : ''}</div>` +
+      '<div class="acts"><button type="button" class="btn hold" id="sbPull">⟳ Выбирать</button><button type="button" class="btn hold" id="sbEase">⟲ Травить</button></div></div>';
     if (!prim) $('#sbClutch').addEventListener('click', () => SIM.deckToggleClutch(S, sel.key));
     $('#sbWinch').addEventListener('click', () => SIM.deckToggleWinch(S, sel.key));
-    if (prim) $('#sbPole').addEventListener('click', () => SIM.deckSetPole(S, S.rig.pole === side ? 0 : side));
-    holdBtn('sbPull', { kind: 'line', line: sel.key, dir: 1 });
-    holdBtn('sbEase', { kind: 'line', line: sel.key, dir: -1 });
+    if (prim) $('#sbPole').addEventListener('click', () => { if (SIM.deckSetPole(S, S.rig.pole === side ? 0 : side)) effectTouch('Выносной гик', null); });
+    holdBtn('sbPull', { kind: 'line', line: sel.key, dir: 1 }, L.short);
+    holdBtn('sbEase', { kind: 'line', line: sel.key, dir: -1 }, L.short);
   } else if (sel.kind === 'car') {
     const nm = sel.key === 'P' ? 'левый' : 'правый';
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink)"></span><h4>Каретка стакселя, ${nm} борт</h4><span class="where">погон на палубе</span></div>` +
-      '<p class="about">Задаёт, куда тянет шкот. Вперёд — шкот тянет шкаторину вниз, верх стакселя закрывается. Назад — тянет вдоль нижней шкаторины, верх открывается. Под нагрузкой не двигается.</p>' + gaugeHtml +
+    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink)"></span><h4>Каретка стакселя, ${nm} борт</h4>${SG_DOT}<span class="where">погон на палубе</span></div>` +
+      '<p class="about">Задаёт, куда тянет шкот. Вперёд — шкот тянет шкаторину вниз, верх стакселя закрывается. Назад — тянет вдоль нижней шкаторины, верх открывается. Под нагрузкой не двигается.</p>' + gaugeHtml + SG_HINT +
       '<div class="acts"><button type="button" class="btn hold" id="sbA">▲ Вперёд</button><button type="button" class="btn hold" id="sbB">▼ Назад</button></div>';
-    holdBtn('sbA', { kind: 'car', side: sel.key, dir: -1 }); holdBtn('sbB', { kind: 'car', side: sel.key, dir: 1 });
+    holdBtn('sbA', { kind: 'car', side: sel.key, dir: -1 }, 'Каретка стакселя'); holdBtn('sbB', { kind: 'car', side: sel.key, dir: 1 }, 'Каретка стакселя');
   } else if (sel.kind === 'trav') {
-    host.innerHTML = '<div class="sh"><span class="sw" style="background:#7a5a3a"></span><h4>Погон гика-шкота</h4><span class="where">каретка на рубке</span></div>' +
-      '<p class="about">Сдвигает гик к ветру или под ветер, почти не меняя натяжения задней шкаторины. Под ветер каретка уходит сама, на ветер под нагрузкой тянется тяжело.</p>' + gaugeHtml +
+    host.innerHTML = `<div class="sh"><span class="sw" style="background:#7a5a3a"></span><h4>Погон гика-шкота</h4>${SG_DOT}<span class="where">каретка на рубке</span></div>` +
+      '<p class="about">Сдвигает гик к ветру или под ветер, почти не меняя натяжения задней шкаторины. Под ветер каретка уходит сама, на ветер под нагрузкой тянется тяжело.</p>' + gaugeHtml + SG_HINT +
       '<div class="acts"><button type="button" class="btn hold" id="sbA">◀ К левому борту</button><button type="button" class="btn hold" id="sbB">К правому борту ▶</button></div>';
-    holdBtn('sbA', { kind: 'trav', dir: -1 }); holdBtn('sbB', { kind: 'trav', dir: 1 });
+    holdBtn('sbA', { kind: 'trav', dir: -1 }, 'Погон гика-шкота'); holdBtn('sbB', { kind: 'trav', dir: 1 }, 'Погон гика-шкота');
   } else if (sel.kind === 'bs') {
-    host.innerHTML = '<div class="sh"><span class="sw" style="background:var(--ink-3)"></span><h4>Ахтерштаг</h4><span class="where">таль на корме</span></div>' +
-      '<p class="about">Туже — мачта прогибается, грот становится площе, штаг меньше провисает и стаксель тоже площе. Подтягивают в свежий ветер на острых курсах.</p>' + gaugeHtml +
+    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink-3)"></span><h4>Ахтерштаг</h4>${SG_DOT}<span class="where">таль на корме</span></div>` +
+      '<p class="about">Туже — мачта прогибается, грот становится площе, штаг меньше провисает и стаксель тоже площе. Подтягивают в свежий ветер на острых курсах.</p>' + gaugeHtml + SG_HINT +
       '<div class="acts"><button type="button" class="btn hold" id="sbA">Подтянуть</button><button type="button" class="btn hold" id="sbB">Потравить</button></div>';
-    holdBtn('sbA', { kind: 'bs', dir: 1 }); holdBtn('sbB', { kind: 'bs', dir: -1 });
+    holdBtn('sbA', { kind: 'bs', dir: 1 }, 'Ахтерштаг'); holdBtn('sbB', { kind: 'bs', dir: -1 }, 'Ахтерштаг');
   } else if (sel.kind === 'winch') {
     const w = sel.key, occ = S.deck.winch[w], bank = w === 'RP' ? 'P' : 'S';
     const lines = SIM.CLUTCH_LINES.filter(k => LINES[k].bank === bank);
     ui.selSig = 'w' + occ;
     host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink-2)"></span><h4>${SIM.WINCH_NAMES[w].replace(/^./, c => c.toUpperCase())}</h4><span class="where">для снастей ${bank === 'P' ? 'левого' : 'правого'} пианино</span></div>` +
-      `<p class="about">${occ ? `На лебёдке «${LINES[occ].short}». Чтобы тянуть другую снасть, сначала снимите эту — её удержит закрытый стопор.` : 'Лебёдка свободна. Заведите на неё снасть, которую нужно выбрать или потравить.'}</p>` +
+      `<p class="about keep">${occ ? `На лебёдке «${LINES[occ].short}». Чтобы тянуть другую снасть, сначала снимите эту — её удержит закрытый стопор.` : 'Лебёдка свободна. Заведите на неё снасть, которую нужно выбрать или потравить.'}</p>` +
       `<div class="acts">${lines.map(k => `<button type="button" class="btn" data-wl="${k}">${occ === k ? 'Снять' : 'Завести'} «${LINES[k].short}»</button>`).join('')}</div>` +
       (occ ? `<button type="button" class="btn" id="sbGoLine">Открыть карточку «${LINES[occ].short}»</button>` : '');
     $$('#selCard [data-wl]').forEach(b => b.addEventListener('click', () => { SIM.deckToggleWinch(S, b.dataset.wl); }));
     if (occ) $('#sbGoLine').addEventListener('click', () => select('line', occ));
     return;
   }
+  const sb = $('#sgSt');
+  if (sb) sb.addEventListener('click', () => { ui.selHint = !ui.selHint; updateSel(); });
   updateSel();
 }
 function setGauge(v, label, val, tg, marks) {
@@ -608,7 +800,15 @@ function updateSel() {
   }
   $('#sgChips').innerHTML = chips.join('');
   const wl = $('#sgWarn');
-  wl.hidden = !warn.text; wl.textContent = warn.text; wl.style.color = warn.cls === 'soft' ? 'var(--ink-2)' : 'var(--bad)';
+  wl.hidden = !warn.text; wl.textContent = warn.text; wl.className = 'warnline' + (warn.cls === 'soft' ? ' soft' : '');
+  const ik = DECK_ITEM[selKey(sel)], sb = $('#sgSt');
+  if (ik && sb) {
+    const it = itemOf(D, ik);
+    setSt(sb, it); sb.setAttribute('aria-expanded', String(ui.selHint));
+    sb.title = `Оценка: ${it ? it.name : ''} — ${ST_TXT[it ? it.status : 'na']}. Нажмите — подсказка`;
+    const box = $('#sgHint'); box.hidden = !ui.selHint;
+    if (ui.selHint) fillHint(box, it);
+  }
 }
 function updateDeckSide() {
   const d = S.deck, msg = $('#deckMsg');
@@ -623,7 +823,7 @@ function buildScenarios() {
   let html = '';
   for (const g in groups) {
     html += `<div class="group scgroup"><h3>${g}</h3><div class="sclist">`;
-    for (const s of groups[g]) html += `<div class="sc" data-id="${s.id}"><div><span class="lvl">${'●'.repeat(s.level)}${'○'.repeat(3 - s.level)} сложность</span><h4>${s.title}</h4></div><button type="button" class="btn" data-start="${s.id}">Начать</button><p>${s.brief}</p></div>`;
+    for (const s of groups[g]) html += `<div class="sc-item" data-id="${s.id}"><div><span class="lvl">${'●'.repeat(s.level)}${'○'.repeat(3 - s.level)} сложность</span><h4>${s.title}</h4></div><button type="button" class="btn" data-start="${s.id}">Начать</button><p>${s.brief}</p></div>`;
     html += '</div></div>';
   }
   $('#scList').innerHTML = html;
@@ -633,6 +833,8 @@ function buildScenarios() {
   $('#bAgain').addEventListener('click', () => { if (S.scn) startScn(S.scn.def.id); });
   $('#bNow').addEventListener('click', () => SIM.fireNow(S));
   $('#bHint').addEventListener('click', () => { ui.todoOpen = !ui.todoOpen; updateBanner(); });
+  $('#bTog').addEventListener('click', () => { ui.bannerOpen = !ui.bannerOpen; updateBanner(); });
+  $('#bTop').addEventListener('click', e => { if (!isPhone() || e.target.closest('#bTog')) return; ui.bannerOpen = !ui.bannerOpen; updateBanner(); });
   $('#dbClose').addEventListener('click', () => { $('#debrief').hidden = true; });
   $('#dbAgain').addEventListener('click', () => { if (S.scn) startScn(S.scn.def.id); });
   $('#dbNext').addEventListener('click', () => {
@@ -642,7 +844,7 @@ function buildScenarios() {
   refreshScnMarks();
 }
 function refreshScnMarks() {
-  $$('#scList .sc').forEach(el => {
+  $$('#scList .sc-item').forEach(el => {
     el.classList.toggle('active', !!S.scn && S.scn.def.id === el.dataset.id);
     el.classList.toggle('done', !!ui.completed[el.dataset.id]);
   });
@@ -651,11 +853,14 @@ function refreshScnMarks() {
 }
 function startScn(id) {
   SIM.startScenario(S, id);
-  ui.todoOpen = false; ui.selItem = null; ui.anim = null;
+  ui.todoOpen = false; ui.bannerOpen = false; ui.selItem = null; ui.anim = null;
+  eff.name = null;
   $('#debrief').hidden = true;
   if (S.mode === 'quick') syncSliders(true);
   select(null);
-  if (scene) scene.setView(ui.view);
+  if (scene) scene.setView(ui.view, { focus: 'all' });
+  if (ui.view === 'auto') ui.lastFocus = 'all';
+  if (isPhone()) { setTab('ctl'); $('#panel').scrollTop = 0; }
   refreshScnMarks();
   toast(S.scn.def.brief, 'info', 6500);
 }
@@ -675,6 +880,9 @@ function updateBanner() {
   const sc = S.scn, b = $('#banner');
   if (!sc) { b.hidden = true; return; }
   b.hidden = false;
+  b.classList.toggle('open', ui.bannerOpen);
+  $('#bTog').setAttribute('aria-expanded', String(ui.bannerOpen));
+  $('#bTog').textContent = ui.bannerOpen ? '▴' : '▾';
   $('#bTitle').textContent = sc.def.title;
   $('#bObj').textContent = objText(sc.def.objective);
   const next = sc.def.events[sc.evIdx];
@@ -714,57 +922,76 @@ function handleEvents() {
   while (S.events.length) {
     const e = S.events.shift();
     switch (e.type) {
-      case 'windEvent': toast(e.data, 'info', 4800); break;
+      case 'windEvent': toast(e.data, 'info', 4800); effectTouch(e.data, null); break;
       case 'run': toast(`«${LINES[e.data].short}» ушёл под нагрузкой!`, 'bad', 5000); break;
       case 'crash': toast('Гик перебросило: неконтролируемый поворот фордевинд!', 'bad', 5500); break;
       case 'gybe': toast('Поворот фордевинд: гик перешёл на другой борт', 'info'); break;
       case 'tack': toast('Поворот оверштаг', 'info', 2500); break;
       case 'broach': toast('Лодку развернуло к ветру: для такого ветра слишком много парусов', 'bad', 5500); break;
       case 'irons': toast('Лодка встала в левентик и потеряла ход. Увалитесь и дайте стакселю наполниться.', 'warn', 5500); break;
+      case 'block': if (isPhone() && S.mode === 'deck') toast(e.data, 'warn', 4500); break;
       case 'scenarioDone': showDebrief(); break;
       default: break;
     }
   }
 }
 
+/* ---------- смена раскладки ---------- */
+function onLayout() {
+  closeCamMenu();
+  setTab(ui.tab);
+  if (scene) scene.setFrameMargin(isPhone() ? 1.14 : 1.03);
+  resize();
+}
+
 /* ---------- сборка и цикл ---------- */
 buildQuick(); buildItems(); buildWind(); buildDeck(); buildScenarios();
 syncSliders(true);
+applyStageFrac(ui.stageFrac);
+setTab('ctl');
+onMq(mqPhone, onLayout); onMq(mqStack, onLayout);
 if (scene) {
+  scene.setFrameMargin(isPhone() ? 1.14 : 1.03);
   resize();
   if (typeof G.ResizeObserver === 'function') new G.ResizeObserver(resize).observe($('#stage'));
   else G.addEventListener('resize', resize);
-  scene.update(S, S.D, 0.016, { showWind: ui.showWind });
-  scene.setView('free');
-  scene.render();
-  $('#loading').hidden = true;
+  scene.update(S, S.D, 0.016, { showWind: ui.showWind, rdt: 0.016 });
+}
+setView(ui.view, true);
+if (scene) { scene.render(); $('#loading').hidden = true; }
+if (isPhone() && !store.get('phoneTip', false)) {
+  store.set('phoneTip', true);
+  setTimeout(() => toast('Меняйте настройки внизу — 3D и полоса приборов сразу покажут результат. Полосу можно тянуть.', 'info', 7000), 700);
 }
 let last = G.performance.now(), accP = 0, accC = 0;
 function frame(now) {
-  const dt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
-  if (ui.anim) stepAnim(dt);
-  const D = SIM.step(S, dt);
+  const rdt = Math.min(0.05, Math.max(0, (now - last) / 1000)); last = now;
+  if (ui.anim) stepAnim(rdt);
+  const D = SIM.step(S, rdt);
   if (scene && D) {
-    try { scene.update(S, D, S.paused ? 0 : dt, { showWind: ui.showWind }); scene.render(); }
+    try { scene.update(S, D, S.paused ? 0 : rdt, { showWind: ui.showWind, rdt }); scene.render(); }
     catch (err) { console.error(err); }
   }
   handleEvents();
-  accC += dt; accP += dt;
-  if (accC >= 1 / 30 && D) { drawWindDial(D); drawTell(D, S.paused ? 0 : accC); accC = 0; }
+  accC += rdt; accP += rdt;
+  if (accC >= 1 / 30 && D) { if (!isPhone()) drawWindDial(D); drawTell(D, S.paused ? 0 : accC); accC = 0; }
   if (accP >= 0.1 && D) {
     accP = 0;
-    updateHud(D); updateScore(D); updateBanner();
-    if (S.mode === 'quick') { syncSliders(false); updateTargets(); }
+    if (isPhone()) updateStrip(D); else { updateHud(D); $('#effChip').hidden = true; }
+    $('#hHdg2').textContent = deg3(D.hdg);
+    $('#helmBar').dataset.man = D.twaAbs <= 100 ? 'tack' : D.twaAbs >= 110 ? 'gybe' : 'none';
+    updateScore(D); updateBanner();
+    if (S.mode === 'quick') { syncSliders(false); updateTargets(); updateCtlStatus(D); }
     else {
       if (ui.showTargets && S.t - ui.tgtT > 0.5) { ui.targets = SIM.solveTrim(S); ui.tgtT = S.t; }
       updateDeck(); updateSel(); updateDeckSide();
     }
     if (!$('[data-pane="wind"]').hidden) updateWind(D);
     const mid = D.tell.jib[1];
-    $('#tellVerdict').textContent = S.rig.furl >= 0.97 ? 'стаксель закручен' : (TELL_TXT[mid] || '');
+    $('#tellVerdict').textContent = S.rig.furl >= 0.97 ? 'закручен' : (TELL_TXT[mid] || '');
   }
   G.requestAnimationFrame(frame);
 }
 G.requestAnimationFrame(frame);
-G.KOLD = { S, ui, scene };
+G.KOLD = { S, ui, eff, scene, setView, setTab, effectTouch };
 })(window);

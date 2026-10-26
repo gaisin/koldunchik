@@ -755,22 +755,48 @@ function createScene(canvas) {
   controls.minDistance = 5; controls.maxDistance = 120; controls.maxPolarAngle = 88 * D2R;
   controls.target.set(0.5, 6.5, 0);
   let view = 'free', lastYaw = null, highlightKey = null;
+  let camAnim = null, lastKey = 'all', userMoved = false, lastAspect = 0, frameMargin = 1;
+  controls.addEventListener('start', () => { camAnim = null; userMoved = true; });
   const boatLocalToWorld = (x, y, z) => { yawG.updateMatrixWorld(); return V3(x, y, z).applyMatrix4(yawG.matrixWorld); };
-  function setView(name) {
-    view = name;
-    const side = SS ? SS.boomSide : -1, win = -side;
+  const wrapPi = a => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  // Ракурсы: tgt — что показываем (z к подветру), dir — откуда смотрим (s: 'win' с наветра, 'lee' с подветра), r — радиус кадра, м
+  const PRESETS = {
+    all: { tgt: [0.4, 8.4, 0.3], dir: [-1.55, 0.45, 1.0], s: 'win', r: 11.0 },
+    stern: { tgt: [0.2, 8.2, 0.4], dir: [-1, 0.3, 0.12], s: 'win', r: 10.6 },
+    top: { tgt: [-0.4, 2.2, 0.3], dir: [-0.07, 1, 0.02], s: 'win', r: 13.5 },
+    side: { tgt: [0.4, 8.2, 0], dir: [0.02, 0.06, 1], s: 'lee', r: 11.0 },
+    trim: { tgt: [0.6, 5.5, 0.6], dir: [-0.8, 1.25, 0.3], s: 'win', r: 10.5 },
+    jibTwist: { tgt: [2.7, 7.0, 0.8], dir: [0.45, 0.22, 1], s: 'lee', r: 9.0 },
+    twist: { tgt: [0, 8.8, 1.0], dir: [-0.75, 0.2, 1], s: 'lee', r: 10.4 },
+    shape: { tgt: [0.3, 7.0, 0.6], dir: [-0.3, 0.14, 1], s: 'lee', r: 9.8 },
+    area: { tgt: [0.6, 8.4, 0.2], dir: [0.06, 0.1, 1], s: 'lee', r: 11.0 }
+  };
+  function presetWorld(key) {
+    const p = PRESETS[key] || PRESETS.all, lee = SS ? SS.boomSide : -1, side = p.s === 'lee' ? lee : -lee;
+    const tl = V3(p.tgt[0], p.tgt[1], p.tgt[2] * lee).applyAxisAngle(V3(1, 0, 0), boat.rotation.x);
+    const dir = V3(p.dir[0], p.dir[1], p.dir[2] * side).normalize();
+    const vf = camera.fov * D2R, hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
+    const dist = clamp(p.r / Math.sin(Math.min(vf, hf) / 2) * frameMargin, 8, 110);
+    return { tgt: boatLocalToWorld(tl.x, tl.y, tl.z), pos: boatLocalToWorld(tl.x + dir.x * dist, tl.y + dir.y * dist, tl.z + dir.z * dist) };
+  }
+  function goTo(key, instant) {
+    lastKey = key; userMoved = false;
+    const w = presetWorld(key);
+    controls.enableDamping = false; controls.update(); controls.enableDamping = true;
+    if (instant) { camAnim = null; camera.position.copy(w.pos); controls.target.copy(w.tgt); controls.update(); return; }
+    const s0 = new T.Spherical().setFromVector3(camera.position.clone().sub(controls.target));
+    const s1 = new T.Spherical().setFromVector3(w.pos.clone().sub(w.tgt));
+    camAnim = { t: 0, dur: 0.9, tg0: controls.target.clone(), tg1: w.tgt, s0, s1 };
+  }
+  function setView(name, o) {
+    o = o || {};
+    view = name; camAnim = null;
     controls.enabled = name !== 'cockpit';
     if (name === 'cockpit') { camera.fov = 50; camera.updateProjectionMatrix(); return; }
     camera.fov = 42; camera.updateProjectionMatrix();
-    let pos, tgt;
-    if (name === 'stern') { pos = [-31, 11.5, win * 3]; tgt = [0, 8, 0]; }
-    else if (name === 'top') { pos = [-3, 50, win * 0.5]; tgt = [-0.5, 2, 0]; }
-    else if (name === 'side') { pos = [0.5, 8, side * 35]; tgt = [0.5, 7.5, 0]; }
-    else { pos = [-27, 11, win * 17]; tgt = [0.5, 7, 0]; }
-    camera.position.copy(boatLocalToWorld(...pos));
-    controls.target.copy(boatLocalToWorld(...tgt));
-    controls.update();
+    goTo(name === 'auto' || name === 'free' ? (o.focus || 'all') : name, !!o.instant);
   }
+  function focus(key, instant) { if (view === 'auto' && PRESETS[key]) goTo(key, !!instant); }
   function highlight(key) {
     highlightKey = key;
     for (const k in ropes) ropes[k].highlight(k === key || (key === 'trav' && k === 'trav'));
@@ -873,14 +899,30 @@ function createScene(canvas) {
       if (Math.abs(dy) > 1e-7) {
         camera.position.applyAxisAngle(UPV, dy);
         controls.target.applyAxisAngle(UPV, dy);
+        if (camAnim) { camAnim.tg0.applyAxisAngle(UPV, dy); camAnim.tg1.applyAxisAngle(UPV, dy); camAnim.s0.theta += dy; camAnim.s1.theta += dy; }
       }
-      controls.update();
+      if (camAnim) {
+        const a = camAnim;
+        a.t += opts.rdt != null ? opts.rdt : dt;
+        const k = smooth(0, 1, a.t / a.dur);
+        controls.target.lerpVectors(a.tg0, a.tg1, k);
+        const sp = new T.Spherical(lerp(a.s0.radius, a.s1.radius, k), lerp(a.s0.phi, a.s1.phi, k), a.s0.theta + wrapPi(a.s1.theta - a.s0.theta) * k);
+        camera.position.setFromSpherical(sp).add(controls.target);
+        camera.lookAt(controls.target);
+        if (a.t >= a.dur) { camAnim = null; controls.update(); }
+      } else controls.update();
     }
     sky.position.copy(camera.position);
   }
-  function resize(w, h) { renderer.setSize(w, h, false); camera.aspect = w / Math.max(h, 1); camera.updateProjectionMatrix(); }
+  function resize(w, h) {
+    renderer.setSize(w, h, false);
+    camera.aspect = w / Math.max(h, 1); camera.updateProjectionMatrix();
+    if (lastAspect && Math.abs(camera.aspect / lastAspect - 1) > 0.06 && !userMoved && !camAnim && view !== 'cockpit') goTo(lastKey, true);
+    lastAspect = camera.aspect;
+  }
+  function setFrameMargin(m) { frameMargin = m; }
   function render() { renderer.render(scene, camera); }
-  return { update, render, resize, setView, highlight, getView: () => view, renderer, camera };
+  return { update, render, resize, setView, focus, setFrameMargin, highlight, getView: () => view, renderer, camera };
 }
 
 G.KScene = { createScene };

@@ -28,20 +28,27 @@
         <div class="tile glass"><div class="lbl">Вымпельный</div><div class="val" id="hAws">0<small>уз</small></div><div class="sub" id="hAwa">—</div></div>
         <div class="tile glass"><div class="lbl">Крен</div><div class="val" id="hHeel">0°</div><div class="sub" id="hRud">—</div></div>
       </div>
-      <div id="banner" class="glass" hidden>
-        <div class="b-top"><div class="b-title" id="bTitle"></div><div class="b-phase" id="bPhase"></div></div>
-        <div class="b-obj" id="bObj"></div>
-        <div class="okbar" id="bOk" hidden><i></i></div>
-        <ol class="b-todo" id="bTodo" hidden></ol>
-        <div class="b-acts">
-          <button type="button" class="gbtn" id="bHint">Что делать?</button>
-          <button type="button" class="gbtn primary" id="bNow">Событие сейчас</button>
-          <button type="button" class="gbtn" id="bAgain">Заново</button>
-          <button type="button" class="gbtn" id="bExit">Выйти</button>
+      <div id="topStack">
+        <div id="banner" class="glass" hidden>
+          <div class="b-top" id="bTop">
+            <div class="b-title" id="bTitle"></div>
+            <div class="b-phase" id="bPhase"></div>
+            <button type="button" class="b-tog" id="bTog" aria-expanded="false" aria-label="Показать задачу и кнопки сценария">▾</button>
+          </div>
+          <div class="b-obj" id="bObj"></div>
+          <div class="okbar" id="bOk" hidden><i></i></div>
+          <ol class="b-todo" id="bTodo" hidden></ol>
+          <div class="b-acts">
+            <button type="button" class="gbtn" id="bHint">Что делать?</button>
+            <button type="button" class="gbtn primary" id="bNow">Событие сейчас</button>
+            <button type="button" class="gbtn" id="bAgain">Заново</button>
+            <button type="button" class="gbtn" id="bExit">Выйти</button>
+          </div>
         </div>
+        <div id="toasts" aria-live="polite"></div>
       </div>
-      <div id="toasts" aria-live="polite"></div>
-      <div id="helmBar" class="glass" role="group" aria-label="Руль">
+      <div id="effChip" class="glass" hidden><span class="eff-k">Эффект</span><b id="effName"></b><span id="effTrend"></span></div>
+      <div id="helmBar" class="glass" role="group" aria-label="Руль" data-man="tack">
         <button type="button" id="hLeft" aria-label="Руль влево">◀<span class="lbl"> Лево</span></button>
         <button type="button" id="hUp">Привестись</button>
         <div class="hdg" id="hHdg2">000°</div>
@@ -52,24 +59,37 @@
         <button type="button" id="hGybe">Фордевинд</button>
       </div>
     </div>
+    <button type="button" id="camBtn" class="glass" aria-label="Вид камеры" aria-expanded="false" aria-controls="camBar">
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 10.5 L21.5 7 V17 L15.5 13.5 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+    </button>
     <div id="camBar">
       <div class="pill glass" role="group" aria-label="Вид камеры">
+        <button type="button" data-view="auto" aria-pressed="false" title="Камера сама показывает ту часть яхты, которую вы настраиваете">Авто<small> — к настройке</small></button>
         <button type="button" data-view="free" aria-pressed="true">Свободно</button>
         <button type="button" data-view="cockpit" aria-pressed="false">С кокпита</button>
         <button type="button" data-view="stern" aria-pressed="false">Сзади</button>
         <button type="button" data-view="top" aria-pressed="false">Сверху</button>
         <button type="button" data-view="side" aria-pressed="false">Сбоку</button>
       </div>
-      <div class="pill glass">
+      <div class="pill glass toggles">
         <button type="button" id="btnWindVis" aria-pressed="true" title="Струйки вымпельного ветра вокруг лодки">Струйки</button>
         <button type="button" id="btnPause" aria-pressed="false">Пауза</button>
       </div>
     </div>
     <div id="gauges">
-      <div class="gcard glass"><div class="gtitle"><span>Ветер</span><span id="dialMode">вымп. / ист.</span></div><canvas id="windDial"></canvas></div>
-      <div class="gcard glass"><div class="gtitle"><span>Колдунчики</span><span id="tellVerdict"></span></div><canvas id="tellCanvas"></canvas></div>
+      <div class="gcard glass wind"><div class="gtitle"><span>Ветер</span><span id="dialMode">вымп. / ист.</span></div><canvas id="windDial"></canvas></div>
+      <div class="gcard glass tell" id="tellCard"><div class="gtitle"><span>Колдунчики</span><span id="tellVerdict"></span></div><canvas id="tellCanvas"></canvas></div>
     </div>
   </section>
+
+  <div id="strip" role="group" aria-label="Приборы. После каждого изменения показывают, что изменилось">
+    <div class="sc" id="cBsp"><span class="k">Скорость</span><b id="sBsp">0.0</b><span class="d" id="dBsp"></span></div>
+    <div class="sc" id="cHeel"><span class="k">Крен</span><b id="sHeel">0°</b><span class="d" id="dHeel"></span></div>
+    <div class="sc" id="cTwa"><span class="k">К ветру</span><b id="sTwa">0°</b><span class="d" id="dTwa"></span></div>
+    <div class="sc" id="cAwa"><span class="k">Вымп.</span><b id="sAwa">0°</b><span class="d" id="dAwa"></span></div>
+    <button type="button" class="sc" id="cScore" aria-label="Оценка настройки: открыть подробности"><span class="k">Настройка</span><b id="sScore">0%</b><span class="d" id="dScore"></span></button>
+    <span class="grip" aria-hidden="true"></span>
+  </div>
 
   <aside id="panel" aria-label="Панель управления">
     <header class="brand">
@@ -100,8 +120,9 @@
     </section>
 
     <nav class="tabs" role="tablist">
-      <button type="button" role="tab" aria-selected="true" data-tab="ctl">Управление</button>
-      <button type="button" role="tab" aria-selected="false" data-tab="wind">Ветер и курс</button>
+      <button type="button" role="tab" aria-selected="true" data-tab="ctl"><span class="tl">Управление</span><span class="ts">Паруса</span></button>
+      <button type="button" role="tab" aria-selected="false" data-tab="score" class="tab-score">Оценка</button>
+      <button type="button" role="tab" aria-selected="false" data-tab="wind"><span class="tl">Ветер и курс</span><span class="ts">Ветер</span></button>
       <button type="button" role="tab" aria-selected="false" data-tab="scn">Сценарии</button>
       <button type="button" role="tab" aria-selected="false" data-tab="help">Справка</button>
     </nav>
@@ -117,7 +138,7 @@
       </div>
       <div id="deckPane" hidden>
         <p class="note">Нажмите на стопор, лебёдку, каретку или погон. Стопор пропускает снасть на выбирание, но не даёт травить: чтобы потравить, заведите снасть на лебёдку и откройте стопор.</p>
-        <div class="deckwrap"><svg id="deckSvg" viewBox="0 0 360 486" role="img" aria-label="Схема кокпита и рубки: пианино, лебёдки, погоны"></svg></div>
+        <div class="deckwrap"><svg id="deckSvg" viewBox="0 0 360 352" role="img" aria-label="Схема кокпита и рубки: пианино, лебёдки, погоны"></svg></div>
         <div class="selcard" id="selCard"><p class="note">Ничего не выбрано. Начните со стопора в пианино.</p></div>
         <p class="msgline" id="deckMsg" hidden></p>
         <div><div class="score-label">Журнал</div><ul class="log" id="deckLog"></ul></div>
@@ -168,6 +189,16 @@
     </div>
 
     <div class="pane help" data-pane="help" hidden>
+      <div class="phone-only">
+        <h3>На телефоне</h3>
+        <ul>
+          <li>3D-вид закреплён сверху, настройки прокручиваются под ним.</li>
+          <li>Полоса приборов под 3D после каждого изменения показывает, что изменилось: скорость, крен, углы к ветру, оценка. Потяните её вверх или вниз, чтобы изменить размер 3D.</li>
+          <li>Камера в режиме «Авто» сама поворачивается к той части яхты, которую вы настраиваете. Выбрать другой вид — кнопка с камерой в углу 3D.</li>
+          <li>Кружок рядом с настройкой показывает её оценку. Нажмите на него — откроется подсказка.</li>
+          <li>Карточку колдунчиков в углу 3D можно свернуть нажатием.</li>
+        </ul>
+      </div>
       <div>
         <h3>Как читать колдунчики</h3>
         <p>На стакселе по три пары ленточек у передней шкаторины: красная — на левой стороне паруса, зелёная — на правой. Наветренная сторона обращена к ветру, подветренная — от него.</p>
