@@ -78,7 +78,8 @@ const HELP_RU = `
     <dt>Лечь в дрейф</dt><dd>Остановить лодку: стаксель заложен на ветер, грот потравлен, руль закреплён на приведение.</dd>
   </dl>
 </div>
-<p class="note">Модель упрощённая и учебная: поляра и силы подобраны под круизную яхту 13 м. Цифры подсказок ориентировочные — на настоящей лодке ориентируйтесь на колдунчики и ощущение руля.</p>`;
+<p class="note">Модель упрощённая и учебная: поляра и силы подобраны под круизную яхту 13 м. Цифры подсказок ориентировочные — на настоящей лодке ориентируйтесь на колдунчики и ощущение руля.</p>
+<p class="note">Сайт собирает обезличенную статистику посещений через GoatCounter, без cookie.</p>`;
 
 const HELP_EN = `
 <div class="phone-only">
@@ -151,7 +152,8 @@ const HELP_EN = `
     <dt>Heave to</dt><dd>Stop the boat with the genoa backed, the main eased and the helm lashed.</dd>
   </dl>
 </div>
-<p class="note">A simplified training model: the polar and forces are tuned for a 13 m cruising yacht. The numbers in the hints are approximate — on a real boat, go by the telltales and the feel of the helm.</p>`;
+<p class="note">A simplified training model: the polar and forces are tuned for a 13 m cruising yacht. The numbers in the hints are approximate — on a real boat, go by the telltales and the feel of the helm.</p>
+<p class="note">The site collects anonymous visit statistics with GoatCounter, without cookies.</p>`;
 
 const UI = {
   ru: {

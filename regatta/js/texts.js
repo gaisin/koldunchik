@@ -37,7 +37,8 @@ const HOW_RU = `
   <li>Против ветра идите острым бейдевиндом, 42–45° к ветру, и поворачивайте на лейлайне — линии на карте, с которой знак берётся одним галсом.</li>
   <li>Тёмная рябь на воде — порыв: в нём лодка идёт быстрее. Светлая гладкая вода — затишье.</li>
   <li>Ветер колеблется. Если на лавировке ветер зашёл (приходится уваливаться), часто выгоднее повернуть на другой галс.</li>
-</ul>`;
+</ul>
+<p class="note">Сайт собирает обезличенную статистику посещений через GoatCounter, без cookie.</p>`;
 
 const HOW_EN = `
 <h3>Goal</h3>
@@ -69,7 +70,8 @@ const HOW_EN = `
   <li>Upwind, sail close-hauled at 42–45° to the wind and tack on the layline — the line on the map from which you can fetch the mark in one tack.</li>
   <li>Dark ripples on the water are a puff: the boat goes faster in it. Pale, glassy water is a lull.</li>
   <li>The wind oscillates. When a header forces you to bear away on a beat, tacking onto the lifted tack usually pays.</li>
-</ul>`;
+</ul>
+<p class="note">The site collects anonymous visit statistics with GoatCounter, without cookies.</p>`;
 
 const DICT = {
   ru: {

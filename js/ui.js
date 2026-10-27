@@ -8,6 +8,8 @@ const SIM = G.SIM, I18N = G.I18N;
 const { clamp, lerp, wrap180, wrap360, sgn, D2R } = SIM;
 const t = (k, ...a) => I18N.t(k, ...a);
 const L = v => SIM.loc(v);
+// статистика: js/analytics.js может отрезать блокировщик рекламы
+const track = (name, params) => { if (G.KAnalytics) G.KAnalytics.track(name, params); };
 const $ = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const r0 = Math.round;
@@ -157,6 +159,7 @@ function setTab(tab) {
 }
 $$('.tabs button').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
 function setMode(m) {
+  if (m !== S.mode) track('sail_mode', { mode: m });
   SIM.setMode(S, m);
   $('#modeQuick').setAttribute('aria-pressed', String(m === 'quick'));
   $('#modeDeck').setAttribute('aria-pressed', String(m === 'deck'));
@@ -538,6 +541,7 @@ function refreshScnMarks() {
 }
 function startScn(id) {
   SIM.startScenario(S, id);
+  track('scenario_start', { scenario: id });
   ui.todoOpen = false; ui.bannerOpen = false; ui.selItem = null; ui.anim = null;
   eff.name = null;
   $('#debrief').hidden = true;

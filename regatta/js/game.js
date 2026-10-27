@@ -11,6 +11,8 @@ const { clamp, wrap180 } = SIM;
 const { esc, setSt, fillHint, itemOf } = KDeck;
 const t = (k, ...a) => I18N.t(k, ...a);
 const L = v => SIM.loc(v);
+// статистика: js/analytics.js может отрезать блокировщик рекламы
+const track = (name, params) => { if (G.KAnalytics) G.KAnalytics.track(name, params); };
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 const r0 = Math.round;
@@ -96,6 +98,7 @@ function newRace() {
 function startRace() {
   store.set('course', ui.courseId); store.set('mode', ui.mode); store.set('rivals', ui.rivals);
   newRace();
+  track('race_start', { course: ui.courseId, mode: ui.mode, rivals: ui.rivals });
   closeOverlays();
   ui.paused = false;
   toast(L(race.C.def.title) + ' · ' + t('sm_' + ui.mode), 'info', 3500);
@@ -325,6 +328,7 @@ function finish() {
   const prev = bestOf(r.course, r.mode), record = prev == null || r.total < prev - 1e-6;
   if (record) { ui.best[r.course] = Object.assign({}, ui.best[r.course], { [r.mode]: r.total }); store.set('best', ui.best); }
   lastResult = { r, prev, record };
+  track('race_finish', { course: r.course, mode: r.mode, rivals: race.boats.length - 1, place: placeOf(me) });
   setTimeout(() => { if (ui.finished && me && me.finishT != null) { renderResults(); $('#results').hidden = false; $('#results .card').scrollTop = 0; $('#resAgain').focus({ preventScroll: true }); } }, 1600);
 }
 function renderResults() {

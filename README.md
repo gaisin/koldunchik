@@ -81,6 +81,7 @@
 | `js/ui.js` | Интерфейс: приборы, полоса изменений, ползунки, сценарии и главный цикл. |
 | `js/gauges.js` | Циферблат ветра и табло колдунчиков. Общие для тренажёра и регаты. |
 | `js/deck.js` | Режим «Палуба»: схема кокпита, карточка снасти, журнал. Общий для тренажёра и регаты. |
+| `js/analytics.js` | Статистика посещений через GoatCounter: просмотры страниц, старты и финиши гонок, сценарии, смена режима парусов. Счётчик загружается только на gaisin.github.io. |
 | `css/style.css` | Стили, светлая и тёмная тема, раскладка для телефона. |
 | `regatta/` | Регата: `index.html`, свои стили и скрипты. Модель, 3D, приборы и палубу берёт из `../js`, Three.js из `../vendor`. |
 | `regatta/js/courses.js` | Трассы: знаки и стороны огибания, линии старта и финиша, ветер, препятствия. |
@@ -88,10 +89,11 @@
 | `regatta/js/race.js` | Гонка: лодка на карте, руль, экипаж, столкновения, старт, огибание знаков, штрафы, финиш, соперники и правила расхождения. Работает и в Node. |
 | `regatta/js/pilot.js` | Автопилот: лавировка до лейлайнов, огибание знаков, обход препятствий и других лодок. Им управляются соперники, и на нём проверяется, что трассы проходимы. |
 | `regatta/js/world3d.js`, `minimap.js`, `game.js` | 3D-объекты дистанции, карта, интерфейс и главный цикл регаты. |
-| `tests/` | Проверки регаты для `node --test`. |
+| `tests/` | Проверки регаты и статистики для `node --test`. |
 | `vendor/` | Three.js r147 и OrbitControls (лицензия MIT). |
 
 Язык выбирается так: `#en` или `#ru` в адресе → сохранённый выбор → язык браузера. Прогресс по сценариям и выбор языка хранятся в `localStorage` браузера.
+Сайт собирает обезличенную статистику посещений через GoatCounter, без cookie; при локальном запуске ничего не отправляется.
 
 ## Ограничения
 
@@ -125,6 +127,8 @@ Speed depends on your angle to the wind and on how well the sails are trimmed.
   Rivals do not tack under another boat's bow or into a mark or a rock, take their penalty turns where the whole circle is in clear water, and wait for the start below the line, moving aside if their spot is taken.
 
 Run the checks with Node 18 or newer: `node --test tests/*.test.js`.
+
+The site collects anonymous visit statistics with GoatCounter, without cookies.
 
 ## Лицензии
 
