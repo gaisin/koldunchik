@@ -5,7 +5,7 @@
 (function (G) {
 'use strict';
 const SIM = G.SIM, I18N = G.I18N;
-const { clamp, lerp, wrap180, wrap360, sgn, D2R, LINES, BOAT } = SIM;
+const { clamp, lerp, wrap180, wrap360, sgn, D2R } = SIM;
 const t = (k, ...a) => I18N.t(k, ...a);
 const L = v => SIM.loc(v);
 const $ = (s, r) => (r || document).querySelector(s);
@@ -13,8 +13,7 @@ const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const r0 = Math.round;
 const f1 = x => (Math.round(x * 10) / 10).toFixed(1);
 const deg3 = a => String(r0(wrap360(a)) % 360).padStart(3, '0') + '°';
-const pct = v => `${r0(v * 100)}%`;
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const { pct, esc } = G.KDeck;
 const store = {
   get(k, d) { try { const v = G.localStorage.getItem('kold.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { G.localStorage.setItem('kold.' + k, JSON.stringify(v)); } catch (e) { /* хранилище недоступно */ } }
@@ -72,18 +71,8 @@ function toast(text, kind, ms) {
   setTimeout(() => { el.style.transition = 'opacity .4s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 450); }, ms || 4200);
 }
 
-/* ---------- удержание кнопки ---------- */
-function holdable(el, start, end) {
-  let active = false;
-  const on = e => { if (active) return; active = true; el.classList.add('on'); start(); if (e && e.pointerId != null) { try { el.setPointerCapture(e.pointerId); } catch (_) { /* нет захвата */ } } if (e) e.preventDefault(); };
-  const off = () => { if (!active) return; active = false; el.classList.remove('on'); end(); };
-  el.addEventListener('pointerdown', on);
-  el.addEventListener('pointerup', off); el.addEventListener('pointercancel', off); el.addEventListener('lostpointercapture', off);
-  el.addEventListener('keydown', e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) on(e); });
-  el.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') off(); });
-  el.addEventListener('blur', off);
-  el.addEventListener('contextmenu', e => e.preventDefault());
-}
+/* ---------- удержание кнопки (js/deck.js) ---------- */
+const { holdable } = G.KDeck;
 
 /* ---------- руль ---------- */
 const helmOn = cmd => () => { SIM.setLash(S, false); S.heave = null; S.helm.cmd = typeof cmd === 'function' ? cmd() : cmd; effectTouch(t('eff_helm'), null); };
@@ -173,7 +162,7 @@ function setMode(m) {
   $('#quickPane').hidden = m !== 'quick';
   $('#deckPane').hidden = m !== 'deck';
   ui.anim = null;
-  select(null);
+  deck.select(null);
   if (m === 'quick') syncSliders(true);
   if (m === 'deck') toast(t('deck_toast'), 'info', 5500);
 }
@@ -181,18 +170,7 @@ $('#modeQuick').addEventListener('click', () => setMode('quick'));
 $('#modeDeck').addEventListener('click', () => setMode('deck'));
 
 /* ---------- оценка: общие помощники ---------- */
-const ST_SYM = { ok: '✓', warn: '!', bad: '✕', na: '–' };
-const stTxt = s => t('st_' + s);
-const itemOf = (D, id) => (D && id ? D.items.find(x => x.id === id) : null);
-function setSt(btn, it) { const st = it ? it.status : 'na'; btn.className = `st st-${st}`; btn.textContent = ST_SYM[st]; }
-function fillHint(box, it) {
-  const st = it ? it.status : 'na';
-  box.className = `ihint st-${st}`;
-  box.querySelector('b').textContent = it ? it.name : '';
-  box.querySelector('span').textContent = stTxt(st);
-  box.querySelector('.diag').textContent = it ? (it.diag || '') : '';
-  box.querySelector('.act').textContent = it && st !== 'ok' && st !== 'na' ? (it.act || '') : '';
-}
+const { ST_SYM, stTxt, itemOf, setSt, fillHint } = G.KDeck;
 const stBtn = (id, label) => `<button type="button" class="st st-na" id="st_${id}" aria-expanded="false" aria-controls="ih_${id}" title="${esc(t('st_title', label))}">–</button>`;
 const ihintHtml = id => `<div class="ihint" id="ih_${id}" hidden><div class="ih-h"><b></b><span></span></div><p class="diag"></p><p class="act"></p></div>`;
 
@@ -411,138 +389,10 @@ function updateStrip(D) {
     $('#effTrend').textContent = Math.abs(tr) > 0.15 ? (tr > 0 ? t('trend_up') : t('trend_down')) : t('trend_flat');
   }
 }
-function fitCanvas(cv) {
-  const dpr = Math.min(G.devicePixelRatio || 1, 2), w = cv.clientWidth, h = cv.clientHeight;
-  if (!w || !h) return null;
-  if (cv.width !== r0(w * dpr) || cv.height !== r0(h * dpr)) { cv.width = r0(w * dpr); cv.height = r0(h * dpr); }
-  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-  return { g, w, h };
-}
-const FONT = '"Sofia Sans Condensed", "Arial Narrow", sans-serif';
-function drawWindDial(D) {
-  const c = fitCanvas($('#windDial')); if (!c || !D) return;
-  const { g, w, h } = c, cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 3;
-  const A = a => (a - 90) * D2R;
-  g.lineWidth = 1; g.strokeStyle = 'rgba(234,243,246,0.2)'; g.beginPath(); g.arc(cx, cy, R, 0, Math.PI * 2); g.stroke();
-  g.lineWidth = R * 0.1; g.lineCap = 'butt';
-  g.strokeStyle = '#e0474c'; g.beginPath(); g.arc(cx, cy, R * 0.87, A(-60), A(-20)); g.stroke();
-  g.strokeStyle = '#2bbf6a'; g.beginPath(); g.arc(cx, cy, R * 0.87, A(20), A(60)); g.stroke();
-  for (let a = 0; a < 360; a += 10) {
-    const big = a % 30 === 0, r1 = R * (big ? 0.74 : 0.79), r2 = R * 0.95;
-    g.strokeStyle = big ? 'rgba(234,243,246,0.85)' : 'rgba(234,243,246,0.35)'; g.lineWidth = big ? 1.5 : 1;
-    g.beginPath(); g.moveTo(cx + r1 * Math.cos(A(a)), cy + r1 * Math.sin(A(a))); g.lineTo(cx + r2 * Math.cos(A(a)), cy + r2 * Math.sin(A(a))); g.stroke();
-  }
-  g.fillStyle = 'rgba(234,243,246,0.7)'; g.font = `600 ${Math.max(8, R * 0.14)}px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
-  for (const a of [60, 120]) for (const s of [1, -1]) g.fillText(String(a), cx + R * 0.6 * Math.cos(A(s * a)), cy + R * 0.6 * Math.sin(A(s * a)));
-  const bl = R * 0.4;
-  g.fillStyle = 'rgba(234,243,246,0.16)';
-  g.beginPath(); g.moveTo(cx, cy - bl);
-  g.bezierCurveTo(cx + bl * 0.44, cy - bl * 0.35, cx + bl * 0.36, cy + bl * 0.6, cx + bl * 0.26, cy + bl * 0.78);
-  g.lineTo(cx - bl * 0.26, cy + bl * 0.78);
-  g.bezierCurveTo(cx - bl * 0.36, cy + bl * 0.6, cx - bl * 0.44, cy - bl * 0.35, cx, cy - bl); g.fill();
-  const needle = (ang, col, len, wdt) => {
-    const a = A(ang), tx = cx + len * Math.cos(a), ty = cy + len * Math.sin(a);
-    g.strokeStyle = col; g.lineWidth = wdt; g.lineCap = 'round';
-    g.beginPath(); g.moveTo(cx + R * 0.3 * Math.cos(a), cy + R * 0.3 * Math.sin(a)); g.lineTo(tx, ty); g.stroke();
-    g.fillStyle = col; g.beginPath();
-    g.moveTo(cx + (len + R * 0.08) * Math.cos(a), cy + (len + R * 0.08) * Math.sin(a));
-    g.lineTo(tx + R * 0.07 * Math.cos(a + Math.PI / 2), ty + R * 0.07 * Math.sin(a + Math.PI / 2));
-    g.lineTo(tx - R * 0.07 * Math.cos(a + Math.PI / 2), ty - R * 0.07 * Math.sin(a + Math.PI / 2)); g.fill();
-  };
-  needle(D.twa, '#7fd0ff', R * 0.8, Math.max(2, R * 0.035));
-  needle(D.awa, '#ff6fc0', R * 0.82, Math.max(3, R * 0.06));
-  g.fillStyle = '#eaf3f6'; g.font = `700 ${R * 0.27}px ${FONT}`; g.fillText(`${r0(D.awaAbs)}°`, cx, cy - R * 0.03);
-  g.fillStyle = 'rgba(234,243,246,0.72)'; g.font = `600 ${R * 0.13}px ${FONT}`; g.fillText(t('dial_true', r0(D.twaAbs)), cx, cy + R * 0.2);
-}
-
-/* ---------- колдунчики (2D-табло) ---------- */
-const TELL_MODE = { ok: ['stream', 'stream'], wind: ['flutter', 'stream'], luff: ['whip', 'flutter'], lee: ['stream', 'lift'], stall: ['stream', 'curl'], limp: ['hang', 'hang'], aback: ['whip', 'whip'], flog: ['whip', 'whip'], pole: ['curl', 'curl'] };
-const RIB = { stream: [0, 0.07, 7], flutter: [-0.95, 0.55, 17], whip: [-0.5, 1.2, 25], lift: [-1.05, 0.3, 5], curl: [-2.3, 0.35, 3], hang: [1.45, 0.1, 2] };
-let tellT = 0;
-const leechVis = [0, 0, 0, 0], leechSeed = [0.7, 2.3, 3.9, 5.1];
-const tellDot = st => (st === 'ok' ? '#3cd18a' : (st === 'wind' || st === 'lee' || st === 'pole' || st === 'limp') ? '#f2be4b' : '#ff7b6e');
-function ribbon(g, x, y, mode, color, len, seed, lw) {
-  const P = RIB[mode] || RIB.stream;
-  g.strokeStyle = color; g.lineWidth = lw || 3; g.lineCap = 'round'; g.lineJoin = 'round';
-  g.beginPath(); g.moveTo(x, y);
-  let px = x, py = y;
-  for (let i = 1; i <= 7; i++) {
-    const a = P[0] + P[1] * Math.sin(tellT * P[2] + i * 0.9 + seed) * (0.3 + i / 7);
-    px += Math.cos(a) * len / 7; py += Math.sin(a) * len / 7; g.lineTo(px, py);
-  }
-  g.stroke();
-}
-function updateLeech(D) {
-  for (let idx = 0; idx < 4; idx++) {
-    const p = D.tell.main[idx];
-    const wob = 0.5 + 0.5 * Math.sin(tellT * 0.9 + leechSeed[idx]) * Math.sin(tellT * 0.37 + leechSeed[idx] * 2);
-    leechVis[idx] += ((p > wob ? 1 : 0) - leechVis[idx]) * 0.12;
-  }
-}
-const jibCols = D => (D.jib.fill < 0 ? ['#2bbf6a', '#ec4a50'] : ['#ec4a50', '#2bbf6a']);
-function drawTellFull(g, w, h, D) {
-  g.save(); g.scale(w / 236, h / 150);
-  g.textAlign = 'left'; g.textBaseline = 'middle';
-  g.font = `700 10px ${FONT}`; g.fillStyle = '#93b2c0';
-  g.fillText(t('tt_genoa'), 4, 8); g.fillText(t('tt_main'), 168, 8);
-  g.font = `600 10px ${FONT}`; g.textAlign = 'center';
-  g.fillText(t('tt_win'), 68, 23); g.fillText(t('tt_lee'), 114, 23);
-  g.textAlign = 'left';
-  const [winCol, leeCol] = jibCols(D);
-  [['tt_top', 2], ['tt_mid', 1], ['tt_low', 0]].forEach(([name, i], r) => {
-    const y = 44 + r * 33;
-    g.fillStyle = 'rgba(234,243,246,0.86)'; g.font = `600 11px ${FONT}`; g.fillText(t(name), 4, y);
-    if (S.rig.furl >= 0.97) { g.fillStyle = '#93b2c0'; g.fillText(t('tt_furled'), 52, y); return; }
-    const st = D.tell.jib[i], m = TELL_MODE[st] || TELL_MODE.ok;
-    g.strokeStyle = 'rgba(234,243,246,0.3)'; g.lineWidth = 1.5;
-    g.beginPath(); g.moveTo(50, y - 9); g.lineTo(50, y + 9); g.moveTo(96, y - 9); g.lineTo(96, y + 9); g.stroke();
-    ribbon(g, 51, y, m[0], winCol, 34, i * 1.7);
-    ribbon(g, 97, y, m[1], leeCol, 34, i * 2.3 + 1);
-    g.fillStyle = tellDot(st); g.beginPath(); g.arc(146, y, 3.6, 0, Math.PI * 2); g.fill();
-  });
-  const xl = y => 172 + 34 * (y - 18) / 124;
-  g.strokeStyle = 'rgba(234,243,246,0.35)'; g.lineWidth = 1.5;
-  g.beginPath(); g.moveTo(168, 18); g.lineTo(168, 142); g.lineTo(206, 142); g.moveTo(172, 18); g.lineTo(206, 142); g.stroke();
-  const hp = D.hoist;
-  [0.86, 0.64, 0.42, 0.2].forEach((vv, k) => {
-    const idx = 3 - k, y = 142 - vv * 124, x = xl(y);
-    if (hp.headH < 0.3 || vv < hp.sBottom + 0.03) return;
-    ribbon(g, x, y, leechVis[idx] > 0.5 ? 'curl' : 'stream', '#f2552c', 26, idx * 1.3);
-  });
-  g.restore();
-}
-function drawTellCompact(g, w, h, D) {
-  g.save(); g.scale(w / 140, h / 66);
-  g.textAlign = 'left'; g.textBaseline = 'middle';
-  g.font = `600 8.5px ${FONT}`; g.fillStyle = '#93b2c0';
-  g.textAlign = 'center'; g.fillText(t('tt_win_s'), 20, 6); g.fillText(t('tt_lee_s'), 54, 6);
-  g.textAlign = 'left'; g.fillText(t('tt_main_s'), 104, 6);
-  const [winCol, leeCol] = jibCols(D);
-  if (S.rig.furl >= 0.97) { g.fillStyle = '#93b2c0'; g.font = `600 10px ${FONT}`; g.fillText(t('tt_furled_long'), 6, 36); }
-  else [2, 1, 0].forEach((i, r) => {
-    const y = 21 + r * 16, st = D.tell.jib[i], m = TELL_MODE[st] || TELL_MODE.ok;
-    g.strokeStyle = 'rgba(234,243,246,0.3)'; g.lineWidth = 1.2;
-    g.beginPath(); g.moveTo(5, y - 6); g.lineTo(5, y + 6); g.moveTo(39, y - 6); g.lineTo(39, y + 6); g.stroke();
-    ribbon(g, 6, y, m[0], winCol, 27, i * 1.7, 2.4);
-    ribbon(g, 40, y, m[1], leeCol, 27, i * 2.3 + 1, 2.4);
-    g.fillStyle = tellDot(st); g.beginPath(); g.arc(80, y, 3, 0, Math.PI * 2); g.fill();
-  });
-  g.strokeStyle = 'rgba(234,243,246,0.35)'; g.lineWidth = 1.2;
-  g.beginPath(); g.moveTo(98, 13); g.lineTo(120, 63); g.stroke();
-  const hp = D.hoist;
-  [0.86, 0.64, 0.42, 0.2].forEach((vv, k) => {
-    const idx = 3 - k;
-    if (hp.headH < 0.3 || vv < hp.sBottom + 0.03) return;
-    const y = 63 - vv * 50, x = 120 - vv * 22;
-    ribbon(g, x, y, leechVis[idx] > 0.5 ? 'curl' : 'stream', '#f2552c', 14, idx * 1.3, 2.2);
-  });
-  g.restore();
-}
-function drawTell(D, dt) {
-  const c = fitCanvas($('#tellCanvas')); if (!c || !D) return;
-  tellT += dt; updateLeech(D);
-  if (c.w < 200) drawTellCompact(c.g, c.w, c.h, D); else drawTellFull(c.g, c.w, c.h, D);
-}
+/* ---------- приборы на холсте (js/gauges.js) ---------- */
+const tellBoard = G.KGauges.createTell();
+const drawWindDial = D => G.KGauges.drawWindDial($('#windDial'), D);
+const drawTell = (D, dt) => tellBoard.draw($('#tellCanvas'), D, S.rig.furl, dt);
 $('#tellCard').addEventListener('click', () => { if (isPhone()) $('#tellCard').classList.toggle('min'); });
 
 /* ---------- полоса приборов: перетаскивание меняет высоту 3D ---------- */
@@ -638,249 +488,11 @@ function updateWind(D) {
   $('#shiftNote').textContent = t('shift_note', t('tack_nom', D.tack), r0(D.twaAbs));
 }
 
-/* ---------- палуба: схема ---------- */
-const DK = {
-  cx: { halyard: 116, reef1: 134, reef2: 152, vang: 170, main: 190, outhaul: 208, furl: 226 },
-  winch: { RP: [122, 172], RS: [238, 172], PP: [70, 250], PS: [290, 250] },
-  track: { P: 64, S: 296 }
-};
-const DECK_ITEM = { halyard: 'luff', reef1: 'reef', reef2: 'reef', vang: 'mainTwist', main: 'mainAoA', outhaul: 'depth', furl: 'furl', sheetP: 'jibAoA', sheetS: 'jibAoA', car: 'jibTwist', trav: 'mainAoA', bs: 'depth' };
-const DECK_HOVE = { sheetP: 'hvJib', sheetS: 'hvJib', main: 'hvMain', trav: 'hvMain' };
-const DECK_FOCUS = { halyard: 'shape', reef1: 'area', reef2: 'area', vang: 'twist', main: 'trim', outhaul: 'shape', furl: 'area', sheetP: 'trim', sheetS: 'trim', car: 'jibTwist', trav: 'trim', bs: 'shape' };
-const selKey = sel => (sel.kind === 'line' ? sel.key : sel.kind);
-function buildDeck() {
-  let s = '<defs><pattern id="teakP" width="7" height="7" patternUnits="userSpaceOnUse"><rect width="7" height="7" fill="var(--teak)" opacity="0.28"/><line x1="0" y1="0" x2="0" y2="7" stroke="var(--teak)" stroke-width="1" opacity="0.55"/></pattern></defs>';
-  s += '<path d="M46 0 C37 112 36 254 50 340 Q52 350 62 350 L298 350 Q308 350 310 340 C324 254 323 112 314 0 Z" fill="var(--deck)" stroke="var(--deck-line)" stroke-width="1.5"/>';
-  s += '<path d="M96 0 L96 196 Q96 210 110 210 L250 210 Q264 210 264 196 L264 0" fill="var(--surface)" stroke="var(--deck-line)" stroke-width="1.5"/>';
-  s += '<rect x="94" y="220" width="172" height="122" rx="12" fill="url(#teakP)" stroke="var(--deck-line)"/>';
-  s += '<rect x="94" y="228" width="24" height="66" rx="5" fill="var(--teak)" opacity="0.45"/><rect x="242" y="228" width="24" height="66" rx="5" fill="var(--teak)" opacity="0.45"/>';
-  s += '<rect x="166" y="232" width="28" height="44" rx="5" fill="var(--teak)" opacity="0.6"/>';
-  s += `<rect x="164" y="186" width="32" height="24" rx="3" fill="var(--ink-3)" opacity="0.55"/><text x="180" y="201" font-size="9" text-anchor="middle" style="fill:var(--surface)">${t('dk_hatch')}</text>`;
-  for (const [x, y] of [[142, 304], [218, 304]]) s += `<circle cx="${x}" cy="${y}" r="18" fill="none" stroke="var(--ink-2)" stroke-width="2.5"/><line x1="${x - 18}" y1="${y}" x2="${x + 18}" y2="${y}" stroke="var(--ink-3)"/><line x1="${x}" y1="${y - 18}" x2="${x}" y2="${y + 18}" stroke="var(--ink-3)"/>`;
-  s += '<path id="dkSheet_P" d="" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path id="dkSheet_S" d="" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
-  s += `<circle cx="180" cy="20" r="9" fill="var(--surface-3)" stroke="var(--ink-2)" stroke-width="1.5"/><text x="194" y="16" font-size="10">${t('dk_mast')}</text>`;
-  for (const k of SIM.CLUTCH_LINES) s += `<path d="M180 28 L${DK.cx[k]} 104" stroke="${LINES[k].color}" stroke-width="1.6" fill="none" opacity="0.7"/>`;
-  s += `<g class="hit" data-kind="trav" role="button" tabindex="0" aria-label="${esc(t('dk_trav_aria'))}"><rect x="104" y="34" width="152" height="26" fill="transparent"/><line class="body" x1="112" y1="48" x2="248" y2="48" stroke="var(--ink-2)" stroke-width="4" stroke-linecap="round"/><rect id="dkTrav" x="171" y="42" width="18" height="12" rx="3" fill="var(--ink)"/><text x="104" y="40" font-size="10">${t('dk_trav')}</text></g>`;
-  for (const k of SIM.CLUTCH_LINES) {
-    const x = DK.cx[k], Ln = LINES[k];
-    s += `<g class="hit" data-kind="line" data-key="${k}" role="button" tabindex="0" aria-label="${esc(t('dk_clutch_aria', Ln.name))}"><rect x="${x - 9}" y="56" width="18" height="82" fill="transparent"/>` +
-      `<text x="${x + 3.5}" y="99" font-size="10.5" transform="rotate(-90 ${x + 3.5} 99)" style="paint-order:stroke;stroke:var(--surface);stroke-width:3px">${esc(Ln.tag)}</text>` +
-      `<rect class="body" id="dkCl_${k}" x="${x - 7.5}" y="104" width="15" height="30" rx="3" fill="var(--surface-3)" stroke="var(--ink-2)"/>` +
-      `<rect x="${x - 5.5}" y="106" width="11" height="5" rx="1.5" fill="${Ln.color}"/><rect id="dkLev_${k}" x="${x - 5}" y="116" width="10" height="14" rx="2" fill="var(--ink)"/></g>`;
-  }
-  for (const k of SIM.CLUTCH_LINES) s += `<path id="dkTail_${k}" d="" stroke="${LINES[k].color}" stroke-width="3" fill="none" stroke-linecap="round"/>`;
-  for (const w of ['RP', 'RS', 'PP', 'PS']) {
-    const [x, y] = DK.winch[w], prim = w[0] === 'P';
-    const kind = prim ? 'line' : 'winch', key = w === 'PP' ? 'sheetP' : w === 'PS' ? 'sheetS' : w;
-    s += `<g class="hit" data-kind="${kind}" data-key="${key}" role="button" tabindex="0" aria-label="${esc(SIM.winchName(w))}"><circle cx="${x}" cy="${y}" r="21" fill="transparent"/>` +
-      `<circle id="dkRing_${w}" cx="${x}" cy="${y}" r="15.5" fill="none" stroke="transparent" stroke-width="4"/>` +
-      `<circle class="body" cx="${x}" cy="${y}" r="12" fill="var(--surface-3)" stroke="var(--ink-2)" stroke-width="1.5"/><circle cx="${x}" cy="${y}" r="4.5" fill="var(--ink-2)"/>` +
-      `<text id="dkWl_${w}" x="${x}" y="${y + 29}" font-size="10" text-anchor="middle"></text></g>`;
-  }
-  for (const sd of ['P', 'S']) {
-    const x = DK.track[sd];
-    s += `<g class="hit" data-kind="car" data-key="${sd}" role="button" tabindex="0" aria-label="${esc(t('dk_car_aria', sd === 'P' ? -1 : 1))}"><rect x="${x - 13}" y="50" width="26" height="130" fill="transparent"/>` +
-      `<line class="body" x1="${x}" y1="60" x2="${x}" y2="170" stroke="var(--ink-2)" stroke-width="3" stroke-linecap="round"/>` +
-      `<rect id="dkCar_${sd}" x="${x - 6}" y="100" width="12" height="16" rx="2.5" fill="var(--ink)"/></g>`;
-  }
-  s += `<g class="hit" data-kind="bs" role="button" tabindex="0" aria-label="${esc(t('dk_bs_aria'))}"><rect x="150" y="322" width="110" height="30" fill="transparent"/><line x1="180" y1="324" x2="180" y2="334" stroke="var(--ink-2)" stroke-width="1.5"/><line x1="180" y1="334" x2="162" y2="349" stroke="var(--ink-2)" stroke-width="1.5"/><line x1="180" y1="334" x2="198" y2="349" stroke="var(--ink-2)" stroke-width="1.5"/><circle class="body" cx="180" cy="334" r="5" fill="var(--surface-3)" stroke="var(--ink-2)"/><text x="204" y="345" font-size="10">${t('dk_bs')}</text></g>`;
-  s += `<text x="20" y="176" font-size="11" text-anchor="middle" transform="rotate(-90 20 176)" style="fill:var(--port);font-weight:700;letter-spacing:.08em">${t('dk_port')}</text>`;
-  s += `<text x="340" y="176" font-size="11" text-anchor="middle" transform="rotate(90 340 176)" style="fill:var(--stbd);font-weight:700;letter-spacing:.08em">${t('dk_stbd')}</text>`;
-  s += `<text x="8" y="14" font-size="10">${t('dk_bow')}</text>`;
-  $('#deckSvg').innerHTML = s;
-  markSel();
-}
-function initDeck() {
-  const svg = $('#deckSvg');
-  svg.addEventListener('click', e => { const g = e.target.closest('.hit'); if (g) select(g.dataset.kind, g.dataset.key || ''); });
-  svg.addEventListener('keydown', e => { if (e.key !== 'Enter' && e.key !== ' ') return; const g = e.target.closest('.hit'); if (g) { e.preventDefault(); select(g.dataset.kind, g.dataset.key || ''); } });
-}
-function updateDeck() {
-  const d = S.deck, R = S.rig, D = S.D;
-  for (const k of SIM.CLUTCH_LINES) {
-    const lev = $('#dkLev_' + k), open = d.clutch[k] === 0;
-    lev.setAttribute('y', open ? 109 : 116); lev.setAttribute('height', open ? 9 : 14);
-    lev.setAttribute('fill', open ? 'var(--accent)' : 'var(--ink)');
-    $('#dkCl_' + k).setAttribute('stroke', d.running[k] ? 'var(--bad)' : 'var(--ink-2)');
-    const w = SIM.onWinch(d, k) ? SIM.winchFor(k) : null, tail = $('#dkTail_' + k);
-    if (w) { const [wx, wy] = DK.winch[w], x = DK.cx[k]; tail.setAttribute('d', `M${x} 134 Q${x} 156 ${wx + (x < wx ? -12 : 12)} ${wy - 6}`); }
-    else tail.setAttribute('d', '');
-  }
-  for (const w of ['RP', 'RS', 'PP', 'PS']) {
-    const k = d.winch[w], ring = $('#dkRing_' + w), lbl = $('#dkWl_' + w);
-    ring.setAttribute('stroke', k ? LINES[k].color : 'transparent');
-    if (w[0] === 'R') lbl.textContent = k ? LINES[k].tag : t('w_free');
-    else { const sk = w === 'PP' ? 'sheetP' : 'sheetS'; lbl.textContent = d.winch[w] ? (D && D.jib.bind && D.jib.ctrl === (w === 'PP' ? -1 : 1) ? t('w_working') : t('w_lazy')) : t('w_off'); if (d.running[sk]) lbl.textContent = t('w_running'); }
-  }
-  for (const sd of ['P', 'S']) {
-    const c = sd === 'P' ? R.carP : R.carS;
-    $('#dkCar_' + sd).setAttribute('y', (60 + 110 * c - 8).toFixed(1));
-  }
-  $('#dkTrav').setAttribute('x', (180 + 64 * R.trav - 9).toFixed(1));
-  for (const sd of ['P', 'S']) {
-    const s = sd === 'P' ? -1 : 1, x = DK.track[sd], c = sd === 'P' ? R.carP : R.carS, cy = 60 + 110 * c;
-    const [wx, wy] = DK.winch[sd === 'P' ? 'PP' : 'PS'];
-    const working = D && D.jib.bind && D.jib.ctrl === s, path = $('#dkSheet_' + sd);
-    const top = x + (s < 0 ? -10 : 10);
-    path.setAttribute('d', `M${top} 0 L${x} ${cy.toFixed(1)} L${wx} ${wy - 12}`);
-    path.setAttribute('stroke', LINES['sheet' + sd].color);
-    path.setAttribute('stroke-width', working ? 3.2 : 1.6);
-    path.setAttribute('stroke-dasharray', working ? '' : '4 4');
-    path.setAttribute('opacity', d.winch[sd === 'P' ? 'PP' : 'PS'] ? 1 : 0.45);
-  }
-}
-const loadTxt = v => (v < 0.12 ? t('load_low') : v < 0.45 ? t('load_mid') : t('load_high'));
-function markSel() {
-  $$('#deckSvg .hit').forEach(g => g.classList.toggle('sel', !!ui.sel && g.dataset.kind === ui.sel.kind && (g.dataset.key || '') === (ui.sel.key || '')));
-}
-function select(kind, key) {
-  ui.sel = kind ? { kind, key } : null;
-  ui.selHint = false;
-  markSel();
-  ui.selSig = '';
-  renderSel();
-  let h = null;
-  if (ui.sel) {
-    if (kind === 'line') h = key; else if (kind === 'car') h = 'car' + key; else if (kind === 'trav') h = 'trav'; else if (kind === 'bs') h = 'backstay'; else if (kind === 'winch') h = S.deck.winch[key];
-    camFocus(DECK_FOCUS[selKey(ui.sel)]);
-  }
-  hl(h);
-}
-function holdBtn(id, hold, name) { const el = $('#' + id); if (!el) return; holdable(el, () => { S.deck.hold = hold; effectTouch(name, null); }, () => { SIM.deckRelease(S); }); }
-const SG_DOT = () => `<button type="button" class="st st-na" id="sgSt" aria-expanded="false" aria-controls="sgHint">–</button>`;
-const SG_HINT = '<div class="ihint" id="sgHint" hidden><div class="ih-h"><b></b><span></span></div><p class="diag"></p><p class="act"></p></div>';
-function renderSel() {
-  const host = $('#selCard'), sel = ui.sel;
-  if (!sel) { host.innerHTML = `<p class="note">${t('sel_none')}</p>`; return; }
-  const gaugeHtml = '<div><div class="gval"><span id="sgLabel"></span><b id="sgVal"></b></div><div class="gauge" id="sgBar"><i></i></div></div><div class="chips" id="sgChips"></div><p class="warnline" id="sgWarn" hidden></p>';
-  if (sel.kind === 'line') {
-    const Ln = LINES[sel.key], prim = !!Ln.primary, side = prim ? (Ln.primary === 'P' ? -1 : 1) : 0;
-    const where = prim ? t('where_prim', side) : t('where_clutch', Ln.bank, SIM.winchName(SIM.winchFor(sel.key)));
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:${Ln.color}"></span><h4>${esc(Ln.name)}</h4>${SG_DOT()}<span class="where">${esc(where)}</span></div><p class="about">${esc(Ln.about)}</p>${gaugeHtml}${SG_HINT}` +
-      `<div class="actrow"><div class="acts">${prim ? '' : '<button type="button" class="btn" id="sbClutch"></button>'}<button type="button" class="btn" id="sbWinch"></button>${prim ? '<button type="button" class="btn" id="sbPole"></button>' : ''}</div>` +
-      `<div class="acts"><button type="button" class="btn hold" id="sbPull">${t('b_pull')}</button><button type="button" class="btn hold" id="sbEase">${t('b_ease')}</button></div></div>`;
-    if (!prim) $('#sbClutch').addEventListener('click', () => SIM.deckToggleClutch(S, sel.key));
-    $('#sbWinch').addEventListener('click', () => SIM.deckToggleWinch(S, sel.key));
-    if (prim) $('#sbPole').addEventListener('click', () => { if (SIM.deckSetPole(S, S.rig.pole === side ? 0 : side)) effectTouch(t('eff_pole'), null); });
-    holdBtn('sbPull', { kind: 'line', line: sel.key, dir: 1 }, Ln.short);
-    holdBtn('sbEase', { kind: 'line', line: sel.key, dir: -1 }, Ln.short);
-  } else if (sel.kind === 'car') {
-    const sd = sel.key === 'P' ? -1 : 1;
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink)"></span><h4>${t('car_title', sd)}</h4>${SG_DOT()}<span class="where">${t('car_where')}</span></div>` +
-      `<p class="about">${t('car_about')}</p>${gaugeHtml}${SG_HINT}` +
-      `<div class="acts"><button type="button" class="btn hold" id="sbA">${t('b_fwd')}</button><button type="button" class="btn hold" id="sbB">${t('b_aft')}</button></div>`;
-    holdBtn('sbA', { kind: 'car', side: sel.key, dir: -1 }, t('eff_car')); holdBtn('sbB', { kind: 'car', side: sel.key, dir: 1 }, t('eff_car'));
-  } else if (sel.kind === 'trav') {
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:#7a5a3a"></span><h4>${t('trav_title')}</h4>${SG_DOT()}<span class="where">${t('trav_where')}</span></div>` +
-      `<p class="about">${t('trav_about')}</p>${gaugeHtml}${SG_HINT}` +
-      `<div class="acts"><button type="button" class="btn hold" id="sbA">${t('b_to_port')}</button><button type="button" class="btn hold" id="sbB">${t('b_to_stbd')}</button></div>`;
-    holdBtn('sbA', { kind: 'trav', dir: -1 }, t('eff_trav')); holdBtn('sbB', { kind: 'trav', dir: 1 }, t('eff_trav'));
-  } else if (sel.kind === 'bs') {
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink-3)"></span><h4>${t('bs_title')}</h4>${SG_DOT()}<span class="where">${t('bs_where')}</span></div>` +
-      `<p class="about">${t('bs_about')}</p>${gaugeHtml}${SG_HINT}` +
-      `<div class="acts"><button type="button" class="btn hold" id="sbA">${t('b_tighten')}</button><button type="button" class="btn hold" id="sbB">${t('b_bs_ease')}</button></div>`;
-    holdBtn('sbA', { kind: 'bs', dir: 1 }, t('eff_bs')); holdBtn('sbB', { kind: 'bs', dir: -1 }, t('eff_bs'));
-  } else if (sel.kind === 'winch') {
-    const w = sel.key, occ = S.deck.winch[w], bank = w === 'RP' ? 'P' : 'S';
-    const lines = SIM.CLUTCH_LINES.filter(k => LINES[k].bank === bank);
-    ui.selSig = 'w' + occ;
-    const nm = SIM.winchName(w);
-    host.innerHTML = `<div class="sh"><span class="sw" style="background:var(--ink-2)"></span><h4>${esc(nm.charAt(0).toUpperCase() + nm.slice(1))}</h4><span class="where">${t('winch_where', bank)}</span></div>` +
-      `<p class="about keep">${esc(occ ? t('winch_busy_about', LINES[occ].ref) : t('winch_free_about'))}</p>` +
-      `<div class="acts">${lines.map(k => `<button type="button" class="btn" data-wl="${k}">${esc(t('winch_line_btn', occ === k, LINES[k].short))}</button>`).join('')}</div>` +
-      (occ ? `<button type="button" class="btn" id="sbGoLine">${esc(t('winch_card_btn', LINES[occ].short))}</button>` : '');
-    $$('#selCard [data-wl]').forEach(b => b.addEventListener('click', () => { SIM.deckToggleWinch(S, b.dataset.wl); }));
-    if (occ) $('#sbGoLine').addEventListener('click', () => select('line', occ));
-    return;
-  }
-  const sb = $('#sgSt');
-  if (sb) sb.addEventListener('click', () => { ui.selHint = !ui.selHint; updateSel(); });
-  updateSel();
-}
-function setGauge(v, label, val, tg, marks) {
-  const bar = $('#sgBar'); if (!bar) return;
-  $('#sgLabel').textContent = label; $('#sgVal').textContent = val;
-  bar.querySelector('i').style.width = `${clamp(v, 0, 1) * 100}%`;
-  const sig = I18N.lang + (marks || []).map(m => m.join(':')).join('|') + '/' + (tg == null ? '' : tg.toFixed(3));
-  if (bar.dataset.sig !== sig) {
-    bar.dataset.sig = sig;
-    bar.querySelectorAll('.mk,.tg').forEach(n => n.remove());
-    for (const [p, txt] of marks || []) { const m = document.createElement('span'); m.className = 'mk'; m.style.left = `${p * 100}%`; m.innerHTML = `<span>${esc(txt)}</span>`; bar.appendChild(m); }
-    if (tg != null) { const x = document.createElement('span'); x.className = 'tg'; x.style.left = `calc(${clamp(tg, 0, 1) * 100}% - 1px)`; bar.appendChild(x); }
-  }
-}
-function updateSel() {
-  const sel = ui.sel; if (!sel) return;
-  const R = S.rig, D = S.D, d = S.deck, T = ui.showTargets ? (ui.targets || SIM.solveTrim(S)) : null;
-  if (!D) return;
-  if (sel.kind === 'winch') { if (ui.selSig !== 'w' + d.winch[sel.key]) renderSel(); return; }
-  const chips = [], warn = { text: '', cls: '' };
-  if (sel.kind === 'line') {
-    const k = sel.key, Ln = LINES[k], prim = !!Ln.primary, on = SIM.onWinch(d, k), load = D.loads[k] || 0, hp = D.hoist;
-    let g;
-    switch (k) {
-      case 'halyard': {
-        const up = R.halyard < hp.hTaut - 0.005;
-        g = [R.halyard / 1.04, up ? t('gl_hoisted') : t('gl_luff'), up ? pct(R.halyard / hp.hTaut) : pct(hp.tension), T ? (1 - BOAT.reefH[T.reef] + BOAT.TENS * T.luff) / 1.04 : null,
-          [[(1 - BOAT.reefH[2]) / 1.04, t('gm_reef2')], [(1 - BOAT.reefH[1]) / 1.04, t('gm_reef1')], [1 / 1.04, t('gm_top')]]];
-        break;
-      }
-      case 'reef1': case 'reef2': { const i = k === 'reef1' ? 1 : 2; g = [R[k], t('gl_reef'), pct(R[k]), T ? (T.reef >= i ? 1 : 0) : null]; break; }
-      case 'vang': g = [R.vang, t('gl_tension'), pct(R.vang), T ? T.vang : null]; break;
-      case 'outhaul': g = [R.outhaul, t('gl_tension'), pct(R.outhaul), T ? T.outhaul : null]; break;
-      case 'main': g = [R.main, t('gl_eased'), t('gv_main', pct(R.main), r0(Math.abs(S.boomAngle))), T ? T.mainsheet : null]; break;
-      case 'furl': g = [R.furl, t('gl_furled'), t('gv_furl', pct(R.furl), pct(1 - R.furl)), T ? 1 - T.open : null]; break;
-      default: {
-        const s = k === 'sheetP' ? -1 : 1, e = R[k] - 0.8 * R.furl, working = D.jib.bind && D.jib.ctrl === s;
-        g = [clamp(e / 1.3, 0, 1), working ? t('gl_working') : t('gl_lazy'), working ? t('gv_jib', r0(Math.abs(D.jib.delta))) : (e > 1.3 ? t('gv_slack') : t('gv_eased', pct(clamp(e / 1.3, 0, 1)))), (T && working) ? T.jibSheet : null];
-      }
-    }
-    setGauge(...g);
-    if (!prim) chips.push(`<span class="chip ${d.clutch[k] ? '' : 'on'}">${t('ch_clutch', d.clutch[k])}</span>`);
-    chips.push(`<span class="chip ${on ? 'on' : ''}">${t('ch_winch', on, prim)}</span>`);
-    chips.push(`<span class="chip">${t('ch_load', loadTxt(load))}</span>`);
-    if (d.running[k]) { chips.push(`<span class="chip danger">${t('ch_running')}</span>`); warn.text = t('wn_running'); }
-    else if (!prim && d.clutch[k] === 1 && !on && load > 0.06) { warn.text = t('wn_clutchOnly'); warn.cls = 'soft'; }
-    else if (!on) { warn.text = t('wn_noWinch'); warn.cls = 'soft'; }
-    if (!prim) $('#sbClutch').textContent = d.clutch[k] ? t('b_clutch_open') : t('b_clutch_close');
-    const w = SIM.winchFor(k), occ = d.winch[w];
-    $('#sbWinch').textContent = on ? t('b_winch_off') : (occ ? t('b_winch_busy', LINES[occ].short) : t('b_winch_on'));
-    if (prim) {
-      const s = k === 'sheetP' ? -1 : 1, pb = $('#sbPole');
-      pb.hidden = !(D.awaAbs > 120 || R.pole);
-      pb.textContent = R.pole === s ? t('b_pole_off') : t('b_pole_on');
-    }
-  } else if (sel.kind === 'car') {
-    const s = sel.key === 'P' ? -1 : 1, c = sel.key === 'P' ? R.carP : R.carS, sh = sel.key === 'P' ? 'sheetP' : 'sheetS';
-    const working = D.jib.bind && D.jib.ctrl === s, load = D.loads[sh] || 0;
-    setGauge(c, t('gl_pos'), t('gv_hole', r0(c * 14) + 1), (T && working) ? T.car : null, [[0, t('gm_bow')], [1, t('gm_stern')]]);
-    chips.push(`<span class="chip">${t('ch_side', working)}</span>`, `<span class="chip">${t('ch_sheetload', loadTxt(load))}</span>`);
-    if (load > 0.22) { warn.text = t('wn_carLoaded'); warn.cls = 'soft'; }
-  } else if (sel.kind === 'trav') {
-    const tr = R.trav, lee = S.boomSide;
-    const rel = tr * lee > 0.02 ? t('rel_lee') : tr * lee < -0.02 ? t('rel_win') : t('rel_c');
-    setGauge((tr + 1) / 2, t('gl_pos'), t('gv_trav', tr, rel), T ? (T.travLee * lee + 1) / 2 : null, [[0, t('gm_port')], [0.5, t('gm_c')], [1, t('gm_stbd')]]);
-    chips.push(`<span class="chip">${t('ch_leeside', lee)}</span>`, `<span class="chip">${t('ch_load', loadTxt(D.loads.main || 0))}</span>`);
-  } else if (sel.kind === 'bs') {
-    setGauge(R.backstay, t('gl_tension'), pct(R.backstay), T ? T.backstay : null);
-  }
-  $('#sgChips').innerHTML = chips.join('');
-  const wl = $('#sgWarn');
-  wl.hidden = !warn.text; wl.textContent = warn.text; wl.className = 'warnline' + (warn.cls === 'soft' ? ' soft' : '');
-  const sk = selKey(sel), ik = D.hoveList ? DECK_HOVE[sk] : DECK_ITEM[sk], sb = $('#sgSt');
-  if (sb) {
-    const it = itemOf(D, ik);
-    setSt(sb, it); sb.setAttribute('aria-expanded', String(ui.selHint));
-    sb.title = t('sg_title', it ? it.name : '—', stTxt(it ? it.status : 'na'));
-    const box = $('#sgHint'); box.hidden = !ui.selHint;
-    if (ui.selHint) fillHint(box, it);
-  }
-}
-function updateDeckSide() {
-  const d = S.deck, msg = $('#deckMsg');
-  if (d.msg && S.t - d.msg.t < 3.5) { msg.hidden = false; msg.textContent = SIM.msgText(d.msg); } else msg.hidden = true;
-  $('#deckLog').innerHTML = d.log.map(l => `<li class="${l.kind === 'bad' ? 'bad' : ''}">${esc(SIM.logText(l))}</li>`).join('') || `<li>${t('log_empty')}</li>`;
-}
+/* ---------- палуба: схема, карточка снасти, журнал (js/deck.js) ---------- */
+const deck = G.KDeck.createDeck({
+  getS: () => S, highlight: hl, focus: camFocus, effect: name => effectTouch(name, null),
+  targets: () => (ui.showTargets ? (ui.targets || SIM.solveTrim(S)) : null)
+});
 
 /* ---------- сценарии ---------- */
 function buildScenarios() {
@@ -929,7 +541,7 @@ function startScn(id) {
   eff.name = null;
   $('#debrief').hidden = true;
   if (S.mode === 'quick') syncSliders(true);
-  select(null);
+  deck.select(null);
   if (scene) scene.setView(ui.view, { focus: 'all' });
   if (ui.view === 'auto') ui.lastFocus = 'all';
   if (isPhone()) { setTab('ctl'); $('#panel').scrollTop = 0; }
@@ -1009,15 +621,15 @@ function handleEvents() {
 function relocalize() {
   SIM.setLang(I18N.lang);
   buildQuick(); syncSliders(true);
-  buildItems(); buildWindDial(); buildShift(); buildDeck(); buildScenarios();
-  renderSel(); syncPause(); syncLangUI();
+  buildItems(); buildWindDial(); buildShift(); deck.build(); buildScenarios();
+  deck.render(); syncPause(); syncLangUI();
   ui.todoKey = '';
   if (!$('#debrief').hidden) renderDebrief();
   const D = S.D;
   if (D) {
     if (isPhone()) updateStrip(D); else updateHud(D);
     updateScore(D); updateBanner(); updateCtlStatus(D);
-    if (S.mode === 'deck') { updateDeck(); updateSel(); updateDeckSide(); }
+    if (S.mode === 'deck') { deck.update(); deck.updateSel(); deck.updateSide(); }
     updateWind(D);
   }
 }
@@ -1032,7 +644,7 @@ function onLayout() {
 }
 
 /* ---------- сборка и цикл ---------- */
-buildQuick(); initScore(); buildItems(); buildWindDial(); buildShift(); initWind(); buildDeck(); initDeck(); renderSel(); initScenarios(); buildScenarios();
+buildQuick(); initScore(); buildItems(); buildWindDial(); buildShift(); initWind(); deck.build(); deck.render(); initScenarios(); buildScenarios();
 syncSliders(true); syncPause(); syncLangUI();
 applyStageFrac(ui.stageFrac);
 setTab('ctl');
@@ -1072,7 +684,7 @@ function frame(now) {
     if (S.mode === 'quick') { syncSliders(false); updateTargets(); updateCtlStatus(D); }
     else {
       if (ui.showTargets && S.t - ui.tgtT > 0.5) { ui.targets = SIM.solveTrim(S); ui.tgtT = S.t; }
-      updateDeck(); updateSel(); updateDeckSide();
+      deck.update(); deck.updateSel(); deck.updateSide();
     }
     if (!$('[data-pane="wind"]').hidden) updateWind(D);
     $('#tellVerdict').textContent = S.rig.furl >= 0.97 ? t('tt_furled') : t('tv_' + D.tell.jib[1]);

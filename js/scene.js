@@ -2,6 +2,9 @@
    Колдунчик — 3D-сцена (Three.js r147, UMD)
    Лодка: x — нос, y — вверх, z — правый борт.
    Мир: x — восток, z — юг, курс 0° = север (−z).
+   Без опций лодка стоит в начале координат, а движется море (тренажёр).
+   С опцией { world: true } лодка идёт по воде: положение передаётся
+   в update через opts.pos, волны и камера живут в мировых координатах (регата).
    ============================================================ */
 (function (G) {
 'use strict';
@@ -189,7 +192,9 @@ class Ribbon {
 }
 
 /* ---------- Сцена ---------- */
-function createScene(canvas) {
+const MAX_GUSTS = 16, MAX_SHOALS = 24;
+function createScene(canvas, sopts) {
+  const WORLD = !!(sopts && sopts.world);
   const renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(G.devicePixelRatio || 1, 2));
   renderer.outputEncoding = T.sRGBEncoding;
@@ -197,6 +202,8 @@ function createScene(canvas) {
   const scene = new T.Scene();
   const camera = new T.PerspectiveCamera(42, 1.6, 0.1, 4000);
   const sunDir = V3(0.52, 0.66, 0.54).normalize();
+  // в мире дальние острова и знаки тонут в дымке так же, как море у горизонта
+  if (WORLD) scene.fog = new T.Fog(COL.horizon, 350, 2600);
 
   scene.add(new T.HemisphereLight(0xdcecff, 0x34586a, 0.85));
   const sun = new T.DirectionalLight(0xfff4e2, 1.05); sun.position.copy(sunDir).multiplyScalar(100); scene.add(sun);
@@ -223,6 +230,13 @@ function createScene(canvas) {
     uDeep: { value: new T.Color(COL.deep) }, uShallow: { value: new T.Color(COL.shallow) }, uSky: skyU.uSky, uHorizon: skyU.uHorizon,
     uSunDir: { value: sunDir }, uSunCol: { value: new T.Color(COL.sun) }, uAmp: { value: 0.3 }, uCaps: { value: 0 }, uOff: { value: new T.Vector2() }
   };
+  if (WORLD) {
+    // порывы (тёмная рябь) и мели (светлая вода, пена у камней) — только в мире
+    Object.assign(seaU, {
+      uGust: { value: Array.from({ length: MAX_GUSTS }, () => new T.Vector4()) }, uGustN: { value: 0 }, uGustDir: { value: new T.Vector2(0, 1) },
+      uShoal: { value: Array.from({ length: MAX_SHOALS }, () => new T.Vector4()) }, uShoalN: { value: 0 }, uShoalCol: { value: new T.Color(0x3fae9f) }
+    });
+  }
   const WAVE_GLSL = `uniform float uTime; uniform vec4 uW[4]; uniform vec4 uP[4];
     vec3 waveAt(vec2 xz, out vec2 grad){ float h = 0.0; vec2 disp = vec2(0.0); grad = vec2(0.0);
       for (int i = 0; i < 4; i++){ vec4 w = uW[i]; vec4 q = uP[i]; float ph = w.z * dot(w.xy, xz) - q.x * uTime + q.y;
@@ -240,10 +254,15 @@ function createScene(canvas) {
     const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setIndex(idx); return g;
   })();
   const sea = new T.Mesh(seaGeo, new T.ShaderMaterial({
-    uniforms: seaU,
+    uniforms: seaU, defines: WORLD ? { KOLD_WORLD: '' } : {},
     vertexShader: WAVE_GLSL + `
       varying vec3 vPos; varying vec3 vN; varying float vH;
-      void main(){ vec3 p = position; vec2 g; vec3 w = waveAt(p.xz, g);
+      void main(){ vec3 p = position; vec2 g;
+        #ifdef KOLD_WORLD
+        vec3 w = waveAt((modelMatrix * vec4(p, 1.0)).xz, g);
+        #else
+        vec3 w = waveAt(p.xz, g);
+        #endif
         float fade = 1.0 - smoothstep(220.0, 900.0, length(p.xz)); w *= fade; g *= fade;
         p.y = w.y; p.xz -= w.xz; vH = w.y; vN = normalize(vec3(-g.x, 1.0, -g.y));
         vec4 wp = modelMatrix * vec4(p, 1.0); vPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
@@ -252,19 +271,50 @@ function createScene(canvas) {
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
         return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y); }
+      #ifdef KOLD_WORLD
+      uniform vec4 uGust[${MAX_GUSTS}]; uniform float uGustN; uniform vec2 uGustDir;
+      uniform vec4 uShoal[${MAX_SHOALS}]; uniform float uShoalN; uniform vec3 uShoalCol;
+      // порыв: эллипс, вытянутый по ветру, с мягкой кромкой; w > 0 — порыв, w < 0 — затишье
+      float gustField(vec2 p){ float g = 0.0;
+        for (int i = 0; i < ${MAX_GUSTS}; i++){ if (float(i) >= uGustN) break; vec4 q = uGust[i]; vec2 d = p - q.xy;
+          float a = dot(d, uGustDir), c = dot(d, vec2(-uGustDir.y, uGustDir.x));
+          g += q.w * (1.0 - smoothstep(0.45, 1.0, sqrt(a * a * 0.4 + c * c) / q.z)); }
+        return g; }
+      #endif
       void main(){ vec3 V = normalize(cameraPosition - vPos); float dist = length(cameraPosition - vPos);
         vec2 uv = (vPos.xz + uOff) * 0.8;
         float n1 = vn(uv + uTime * 0.5), n2 = vn(uv * 2.1 - uTime * 0.8), n3 = vn(uv * 0.23 + uTime * 0.05);
         float near = 1.0 - smoothstep(25.0, 260.0, dist);
         vec3 N = normalize(vN + vec3((n1 - 0.5) * 0.22 + (n3 - 0.5) * 0.1, 0.0, (n2 - 0.5) * 0.22) * near);
+        float glintK = 1.0;
+        #ifdef KOLD_WORLD
+        // в порыве вода темнее и без солнечных бликов, в затишье — гладкая и светлая
+        float gf = gustField(vPos.xz), gp = clamp(gf, 0.0, 1.0), gl = clamp(-gf, 0.0, 1.0);
+        N = normalize(N - vec3(N.x, 0.0, N.z) * 0.6 * gl * near);
+        glintK = 1.0 - 0.9 * gp;
+        #endif
         float fres = mix(0.04, 1.0, pow(1.0 - max(dot(N, V), 0.0), 4.0));
         vec3 R = reflect(-V, N);
         vec3 skyc = mix(uHorizon, uSky, clamp(R.y * 1.6, 0.0, 1.0));
         vec3 base = mix(uDeep, uShallow, clamp(vH / (uAmp * 2.0 + 0.01) + 0.45, 0.0, 1.0) * 0.45);
         vec3 col = mix(base, skyc, fres * 0.8);
-        col += uSunCol * pow(max(dot(R, uSunDir), 0.0), 240.0) * 1.4;
+        col += uSunCol * pow(max(dot(R, uSunDir), 0.0), 240.0) * 1.4 * glintK;
         float cap = smoothstep(0.62, 1.0, vH / (uAmp * 1.3 + 0.01)) * smoothstep(0.5, 0.85, vn(uv * 0.5 + uTime * 0.15)) * uCaps;
         col = mix(col, vec3(0.94, 0.96, 0.97), cap * 0.85);
+        #ifdef KOLD_WORLD
+        // рябь порыва — короткие тёмные полосы поперёк ветра
+        vec2 gq = vec2(dot(vPos.xz, uGustDir), dot(vPos.xz, vec2(-uGustDir.y, uGustDir.x)));
+        float rip = vn(vec2(gq.x * 1.7 - uTime * 2.2, gq.y * 0.35)) * 0.65 + vn(vec2(gq.x * 3.1 - uTime * 3.0, gq.y * 0.8)) * 0.35;
+        col = mix(col, vec3(0.010, 0.040, 0.068) * (0.65 + 0.7 * rip), 0.82 * gp);
+        col = mix(col, skyc, 0.3 * gl);
+        float sh = 0.0, foam = 0.0;
+        for (int i = 0; i < ${MAX_SHOALS}; i++){ if (float(i) >= uShoalN) break; vec4 q = uShoal[i]; float d = length(vPos.xz - q.xy);
+          if (q.w > 0.0) sh = max(sh, q.w * (1.0 - smoothstep(q.z * 0.45, q.z, d)));
+          else foam = max(foam, -q.w * (1.0 - smoothstep(0.0, 3.5, abs(d - q.z - 1.2)))); }
+        col = mix(col, uShoalCol, sh * 0.62 * (1.0 - 0.55 * fres));
+        foam *= 0.45 + 0.55 * vn(vPos.xz * 1.2 + uTime * 0.9);
+        col = mix(col, vec3(0.94, 0.96, 0.97), foam * 0.85);
+        #endif
         col = mix(col, uHorizon, smoothstep(120.0, 1900.0, dist));
         gl_FragColor = vec4(col, 1.0);
         #include <encodings_fragment>
@@ -718,12 +768,13 @@ function createScene(canvas) {
   arrowGeo.setAttribute('position', new T.Float32BufferAttribute([-7, 0, -0.35, 4, 0, -0.35, 4, 0, 0.35, -7, 0, 0.35, 4, 0, -1.3, 7.5, 0, 0, 4, 0, 1.3], 3));
   arrowGeo.setIndex([0, 2, 1, 0, 3, 2, 4, 6, 5]);
   const windArrow = new T.Mesh(arrowGeo, new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, side: T.DoubleSide, depthWrite: false }));
-  windArrow.renderOrder = 2; scene.add(windArrow);
+  const aroundG = new T.Group(); scene.add(aroundG);
+  windArrow.renderOrder = 2; aroundG.add(windArrow);
   const NSTREAK = 260, streakPos = new Float32Array(NSTREAK * 6), streaks = [];
   for (let i = 0; i < NSTREAK; i++) streaks.push(V3((Math.random() - 0.5) * 60, 0.6 + Math.random() * 22, (Math.random() - 0.5) * 60));
   const streakGeo = new T.BufferGeometry(); streakGeo.setAttribute('position', new T.BufferAttribute(streakPos, 3));
   const streakLines = new T.LineSegments(streakGeo, new T.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false }));
-  streakLines.frustumCulled = false; scene.add(streakLines);
+  streakLines.frustumCulled = false; aroundG.add(streakLines);
 
   /* кильватер */
   const wakeU = { uTime: seaU.uTime, uW: seaU.uW, uP: seaU.uP, uScroll: { value: 0 }, uStr: { value: 0 } };
@@ -752,7 +803,7 @@ function createScene(canvas) {
   /* камера */
   const controls = new T.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
-  controls.minDistance = 5; controls.maxDistance = 120; controls.maxPolarAngle = 88 * D2R;
+  controls.minDistance = 5; controls.maxDistance = WORLD ? 420 : 120; controls.maxPolarAngle = 88 * D2R;
   controls.target.set(0.5, 6.5, 0);
   let view = 'free', lastYaw = null, highlightKey = null;
   let camAnim = null, lastKey = 'all', userMoved = false, lastAspect = 0, frameMargin = 1;
@@ -769,14 +820,17 @@ function createScene(canvas) {
     jibTwist: { tgt: [2.7, 7.0, 0.8], dir: [0.45, 0.22, 1], s: 'lee', r: 9.0 },
     twist: { tgt: [0, 8.8, 1.0], dir: [-0.75, 0.2, 1], s: 'lee', r: 10.4 },
     shape: { tgt: [0.3, 7.0, 0.6], dir: [-0.3, 0.14, 1], s: 'lee', r: 9.8 },
-    area: { tgt: [0.6, 8.4, 0.2], dir: [0.06, 0.1, 1], s: 'lee', r: 11.0 }
+    area: { tgt: [0.6, 8.4, 0.2], dir: [0.06, 0.1, 1], s: 'lee', r: 11.0 },
+    // регата: за лодкой с видом вперёд и высоко над дистанцией
+    chase: { tgt: [70, 0, 0], dir: [-0.965, 0.262, 0], s: 'win', r: 46 },
+    high: { tgt: [120, 0, 0], dir: [-0.84, 1, 0], s: 'win', r: 136 }
   };
   function presetWorld(key) {
     const p = PRESETS[key] || PRESETS.all, lee = SS ? SS.boomSide : -1, side = p.s === 'lee' ? lee : -lee;
     const tl = V3(p.tgt[0], p.tgt[1], p.tgt[2] * lee).applyAxisAngle(V3(1, 0, 0), boat.rotation.x);
     const dir = V3(p.dir[0], p.dir[1], p.dir[2] * side).normalize();
     const vf = camera.fov * D2R, hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
-    const dist = clamp(p.r / Math.sin(Math.min(vf, hf) / 2) * frameMargin, 8, 110);
+    const dist = clamp(p.r / Math.sin(Math.min(vf, hf) / 2) * frameMargin, 8, WORLD ? 400 : 110);
     return { tgt: boatLocalToWorld(tl.x, tl.y, tl.z), pos: boatLocalToWorld(tl.x + dir.x * dist, tl.y + dir.y * dist, tl.z + dir.z * dist) };
   }
   function goTo(key, instant) {
@@ -791,8 +845,9 @@ function createScene(canvas) {
   function setView(name, o) {
     o = o || {};
     view = name; camAnim = null;
-    controls.enabled = name !== 'cockpit';
-    if (name === 'cockpit') { camera.fov = 50; camera.updateProjectionMatrix(); return; }
+    const rigid = name === 'cockpit' || name === 'helm';
+    controls.enabled = !rigid;
+    if (rigid) { camera.fov = 50; camera.updateProjectionMatrix(); return; }
     camera.fov = 42; camera.updateProjectionMatrix();
     goTo(name === 'auto' || name === 'free' ? (o.focus || 'all') : name, !!o.instant);
   }
@@ -808,8 +863,9 @@ function createScene(canvas) {
   }
 
   /* обновление кадра */
-  let waveAng = null;
-  const tmpW = V3(0, 0, 0);
+  let waveAng = null, lastPos = null;
+  const tmpW = V3(0, 0, 0), center = V3(0, 0, 0);
+  const rotAround = (v, a) => v.sub(center).applyAxisAngle(UPV, a).add(center);
   function update(S, D, dt, opts) {
     SS = S; DD = D; time += dt;
     if (!D) return;
@@ -820,19 +876,24 @@ function createScene(canvas) {
     if (waveAng == null) waveAng = targetAng;
     waveAng += wrap180((targetAng - waveAng) / D2R) * D2R * Math.min(1, dt / 12);
     const ampMain = clamp(0.0024 * S.wind.tws * S.wind.tws, 0.03, 1.25);
+    // где лодка: в мире она идёт по воде, в тренажёре стоит, а вода течёт мимо
+    const bx = WORLD && opts.pos ? opts.pos.x : 0, bz = WORLD && opts.pos ? opts.pos.z : 0;
     waves.forEach((w, i) => {
-      const a = waveAng + w.def.off * D2R;
+      const a = waveAng + w.def.off * D2R, dx0 = w.dx, dz0 = w.dz;
       w.dx = Math.sin(a); w.dz = -Math.cos(a); w.amp = ampMain * w.def.amp;
-      w.off = (w.off + w.k * (w.dx * (B.vx || 0) + w.dz * (B.vz || 0)) * dt) % (Math.PI * 2);
+      if (!WORLD) w.off = (w.off + w.k * (w.dx * (B.vx || 0) + w.dz * (B.vz || 0)) * dt) % (Math.PI * 2);
+      // в мире волны поворачиваются вслед за ветром вокруг лодки, а не вокруг начала координат
+      else w.off = (w.off - w.k * ((w.dx - dx0) * bx + (w.dz - dz0) * bz)) % (Math.PI * 2);
       seaU.uW.value[i].set(w.dx, w.dz, w.k, w.amp); seaU.uP.value[i].set(w.om, w.off, w.st, 0);
     });
     seaU.uTime.value = time; seaU.uAmp.value = ampMain; seaU.uCaps.value = smooth(11, 22, S.wind.tws);
-    const ox = seaU.uOff.value; ox.x = (ox.x + (B.vx || 0) * dt) % 4096; ox.y = (ox.y + (B.vz || 0) * dt) % 4096;
+    if (WORLD) { yawG.position.set(bx, 0, bz); sea.position.set(bx, 0, bz); aroundG.position.set(bx, 0, bz); center.set(bx, 0, bz); }
+    else { const ox = seaU.uOff.value; ox.x = (ox.x + (B.vx || 0) * dt) % 4096; ox.y = (ox.y + (B.vz || 0) * dt) % 4096; }
     // положение лодки
     const yaw = Math.PI / 2 - B.hdg * D2R;
     yawG.rotation.y = yaw;
     const fx = Math.sin(B.hdg * D2R), fz = -Math.cos(B.hdg * D2R), rx = -fz, rz = fx;
-    const hB = waveH(fx * 5, fz * 5, time), hS = waveH(-fx * 5, -fz * 5, time), hR = waveH(rx * 1.8, rz * 1.8, time), hL = waveH(-rx * 1.8, -rz * 1.8, time);
+    const hB = waveH(bx + fx * 5, bz + fz * 5, time), hS = waveH(bx - fx * 5, bz - fz * 5, time), hR = waveH(bx + rx * 1.8, bz + rz * 1.8, time), hL = waveH(bx - rx * 1.8, bz - rz * 1.8, time);
     boat.position.y = (hB + hS + hR + hL) * 0.2;
     boat.rotation.z = Math.atan2(hB - hS, 10) * 0.8;
     const crashKick = S.crashT > 0 ? Math.sin(S.crashT * 30) * S.crashT * 0.08 : 0;
@@ -864,7 +925,7 @@ function createScene(canvas) {
     updateTelltales(jc, mc);
     // стрелка истинного ветра
     const tdx = -Math.sin(S.wind.twd * D2R), tdz = Math.cos(S.wind.twd * D2R);
-    windArrow.position.set(-tdx * 22, 0.35 + waveH(-tdx * 22, -tdz * 22, time), -tdz * 22);
+    windArrow.position.set(-tdx * 22, 0.35 + waveH(bx - tdx * 22, bz - tdz * 22, time), -tdz * 22);
     windArrow.rotation.y = Math.atan2(-tdz, tdx);
     windArrow.visible = opts.showWind;
     // струйки вымпельного ветра
@@ -887,19 +948,36 @@ function createScene(canvas) {
     wakeU.uScroll.value = B.dist; wakeU.uStr.value = smooth(0.6, 6.5, B.bsp);
     // камера
     if (lastYaw == null) lastYaw = yaw;
+    // камера едет вместе с лодкой
+    if (WORLD) {
+      if (!lastPos) lastPos = V3(bx, 0, bz);
+      tmpW.set(bx - lastPos.x, 0, bz - lastPos.z); lastPos.set(bx, 0, bz);
+      if (tmpW.x || tmpW.z) {
+        camera.position.add(tmpW); controls.target.add(tmpW);
+        if (camAnim) { camAnim.tg0.add(tmpW); camAnim.tg1.add(tmpW); }
+      }
+    }
     const dy = yaw - lastYaw; lastYaw = yaw;
-    if (view === 'cockpit') {
+    if (view === 'cockpit' || view === 'helm') {
       boat.updateMatrixWorld();
       const win = -S.boomSide;
-      const cp = boat.localToWorld(V3(-3.6, 2.55, win * 1.95));
-      const lp = ptAt(jc, jibRow, 0.12, 0.5, V3(0, 0, 0), true);
-      const lookP = boat.localToWorld(lp.lerp(V3(1.5, 9, 0), 0.15));
-      camera.position.lerp(cp, Math.min(1, dt * 5)); camera.lookAt(lookP);
+      let cp, lookP;
+      if (view === 'helm') {
+        // у наветренного штурвала, взгляд вперёд по курсу
+        cp = boat.localToWorld(V3(-5.75, 2.5, win * 0.9));
+        lookP = boat.localToWorld(V3(45, 1.2, win * 0.4));
+      } else {
+        cp = boat.localToWorld(V3(-3.6, 2.55, win * 1.95));
+        const lp = ptAt(jc, jibRow, 0.12, 0.5, V3(0, 0, 0), true);
+        lookP = boat.localToWorld(lp.lerp(V3(1.5, 9, 0), 0.15));
+      }
+      const k = view === 'helm' && opts.rdt != null ? opts.rdt : dt;
+      camera.position.lerp(cp, Math.min(1, k * 5)); camera.lookAt(lookP);
     } else {
       if (Math.abs(dy) > 1e-7) {
-        camera.position.applyAxisAngle(UPV, dy);
-        controls.target.applyAxisAngle(UPV, dy);
-        if (camAnim) { camAnim.tg0.applyAxisAngle(UPV, dy); camAnim.tg1.applyAxisAngle(UPV, dy); camAnim.s0.theta += dy; camAnim.s1.theta += dy; }
+        rotAround(camera.position, dy);
+        rotAround(controls.target, dy);
+        if (camAnim) { rotAround(camAnim.tg0, dy); rotAround(camAnim.tg1, dy); camAnim.s0.theta += dy; camAnim.s1.theta += dy; }
       }
       if (camAnim) {
         const a = camAnim;
@@ -917,12 +995,24 @@ function createScene(canvas) {
   function resize(w, h) {
     renderer.setSize(w, h, false);
     camera.aspect = w / Math.max(h, 1); camera.updateProjectionMatrix();
-    if (lastAspect && Math.abs(camera.aspect / lastAspect - 1) > 0.06 && !userMoved && !camAnim && view !== 'cockpit') goTo(lastKey, true);
+    if (lastAspect && Math.abs(camera.aspect / lastAspect - 1) > 0.06 && !userMoved && !camAnim && view !== 'cockpit' && view !== 'helm') goTo(lastKey, true);
     lastAspect = camera.aspect;
   }
   function setFrameMargin(m) { frameMargin = m; }
   function render() { renderer.render(scene, camera); }
-  return { update, render, resize, setView, focus, setFrameMargin, highlight, getView: () => view, renderer, camera };
+  // поля на воде для мира: порывы {x, z, r, w} и мели {x, z, r, w}; w < 0 у мели — кольцо пены вокруг камня
+  function setSeaFields(f) {
+    if (!WORLD) return;
+    const put = (list, arr, nU, max) => { const n = Math.min(list.length, max); for (let i = 0; i < n; i++) { const g = list[i]; arr[i].set(g.x, g.z, g.r, g.w); } nU.value = n; };
+    if (f.gusts) put(f.gusts, seaU.uGust.value, seaU.uGustN, MAX_GUSTS);
+    if (f.gustDir) seaU.uGustDir.value.set(f.gustDir.x, f.gustDir.z).normalize();
+    if (f.shoals) put(f.shoals, seaU.uShoal.value, seaU.uShoalN, MAX_SHOALS);
+  }
+  return {
+    update, render, resize, setView, focus, setFrameMargin, highlight, getView: () => view, renderer, camera,
+    scene, controls, setSeaFields, maxGusts: MAX_GUSTS, maxShoals: MAX_SHOALS,
+    waveH: (x, z) => waveH(x, z, time), time: () => time
+  };
 }
 
 G.KScene = { createScene };

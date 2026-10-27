@@ -445,14 +445,17 @@ const I18N = {
     if (v == null) return k;
     return typeof v === 'function' ? v(...a) : v;
   },
+  has: k => UI[I18N.lang][k] != null || UI.ru[k] != null,
+  // Неизвестные ключи разметки не трогаем: их словарь (например, регаты) подключится следом.
   apply(root) {
     const r = root || G.document;
-    r.querySelectorAll('[data-t]').forEach(el => { el.textContent = I18N.t(el.dataset.t); });
-    r.querySelectorAll('[data-th]').forEach(el => { el.innerHTML = I18N.t(el.dataset.th); });
+    r.querySelectorAll('[data-t]').forEach(el => { if (I18N.has(el.dataset.t)) el.textContent = I18N.t(el.dataset.t); });
+    r.querySelectorAll('[data-th]').forEach(el => { if (I18N.has(el.dataset.th)) el.innerHTML = I18N.t(el.dataset.th); });
     r.querySelectorAll('[data-ta]').forEach(el => {
       for (const pair of el.dataset.ta.split(';')) {
         const i = pair.indexOf(':'); if (i < 0) continue;
-        el.setAttribute(pair.slice(0, i).trim(), I18N.t(pair.slice(i + 1).trim()));
+        const k = pair.slice(i + 1).trim();
+        if (I18N.has(k)) el.setAttribute(pair.slice(0, i).trim(), I18N.t(k));
       }
     });
     G.document.documentElement.lang = I18N.lang;
@@ -466,7 +469,12 @@ const I18N = {
     I18N.apply();
     for (const fn of listeners) fn(l);
   },
-  onChange(fn) { listeners.push(fn); }
+  onChange(fn) { listeners.push(fn); },
+  // Словарь другой страницы дополняет общий; совпадающие ключи берутся из него.
+  add(dict) {
+    for (const l in dict) if (UI[l]) Object.assign(UI[l], dict[l]);
+    I18N.apply();
+  }
 };
 I18N.apply();
 G.I18N = I18N;

@@ -39,7 +39,7 @@
           <div class="okbar" id="bOk" hidden><i></i></div>
           <ol class="b-todo" id="bTodo" hidden></ol>
           <div class="b-acts">
-            <button type="button" class="gbtn" id="bHint">Что делать?</button>
+            <button type="button" class="gbtn" id="bHint" data-t="b_hint">Что делать?</button>
             <button type="button" class="gbtn primary" id="bNow" data-t="b_now">Событие сейчас</button>
             <button type="button" class="gbtn" id="bAgain" data-t="b_again">Заново</button>
             <button type="button" class="gbtn" id="bExit" data-t="b_exit">Выйти</button>
@@ -160,7 +160,7 @@
           <svg id="dirDial" viewBox="0 0 150 150" role="slider" aria-label="Направление истинного ветра" data-ta="aria-label:aria_dirDial" tabindex="0" aria-valuemin="0" aria-valuemax="359"></svg>
           <div>
             <div class="ctl">
-              <div class="ctl-top"><label for="twsR" data-t="w_speed">Сила ветра</label><output id="twsOut">12 уз</output></div>
+              <div class="ctl-top"><label for="twsR" data-t="w_speed">Сила ветра</label><output id="twsOut"></output></div>
               <div class="range"><input type="range" id="twsR" min="0" max="30" step="0.5"></div>
               <div class="ends"><span data-t="w_calm">штиль</span><span id="bft"></span><span data-t="w_30">30 уз</span></div>
             </div>
@@ -223,6 +223,8 @@
 <script src="vendor/OrbitControls.js"></script>
 <script src="js/sim.js"></script>
 <script src="js/scene.js"></script>
+<script src="js/gauges.js"></script>
+<script src="js/deck.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>
