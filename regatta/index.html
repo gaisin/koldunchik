@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Колдунчик · Регата — гонка под парусом</title>
+<meta name="description" content="3D-регата на яхте 13 м: старт с отсчётом, лавировка к знакам, порывы и заходы ветра, камни и мели. Скорость зависит от настройки парусов.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Колдунчик · Регата — гонка под парусом">
+<meta property="og:description" content="3D-регата на яхте 13 м: старт с отсчётом, лавировка к знакам, порывы и заходы ветра, камни и мели. Скорость зависит от настройки парусов.">
+<meta name="theme-color" content="#0e2233">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 34 34'%3E%3Crect width='34' height='34' rx='8' fill='%230e2233'/%3E%3Cpath d='M8 30 L15 3 L28 28 Z' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linejoin='round'/%3E%3Cpath d='M15 12 q4 -1 7 1' stroke='%23e3323a' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3Cpath d='M14 19 q4 -1 8 1' stroke='%231dac59' stroke-width='2.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=Sofia+Sans+Condensed:wght@500;600;700;800&display=swap">
+<link rel="stylesheet" href="../css/style.css">
+<link rel="stylesheet" href="css/regatta.css">
+</head>
+<body class="regatta">
+<div id="race">
+  <section id="view" aria-label="3D-вид гонки" data-ta="aria-label:aria_view">
+    <canvas id="gl"></canvas>
+    <div id="labels" aria-hidden="true"></div>
+    <div id="loading"><p data-t="loading">Загружаю 3D-сцену…</p></div>
+
+    <div id="raceBar" class="glass" aria-live="off">
+      <div class="clock"><span class="k" id="clockK" data-t="rb_pre">До старта</span><b id="clock">1:00</b></div>
+      <div class="place" id="placeBox" hidden><span class="k" data-t="rb_place">Место</span><b id="place">1/4</b></div>
+      <div class="next">
+        <span class="k" id="nextK">Стартовая линия</span>
+        <b id="nextName"><i id="nextSide" class="sidedot" hidden></i><span id="nextText">—</span></b>
+        <span class="pen" id="penLine" hidden></span>
+      </div>
+    </div>
+    <div id="toasts" aria-live="polite"></div>
+
+    <div id="viewBtns">
+      <button type="button" id="rLang" class="vbtn glass" aria-label="Switch to English" data-ta="aria-label:lang_btn_aria">EN</button>
+      <button type="button" id="rCam" class="vbtn glass" aria-label="Вид камеры" data-ta="aria-label:rb_cam;title:rb_cam" title="Вид камеры" aria-expanded="false" aria-controls="rCamBar">
+        <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 10.5 L21.5 7 V17 L15.5 13.5 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      </button>
+      <button type="button" id="rWarp" class="vbtn glass" aria-label="Скорость времени" data-ta="aria-label:rb_warp;title:rb_warp" title="Скорость времени">×1</button>
+      <button type="button" id="rMenu" class="vbtn glass" aria-label="Меню и пауза" data-ta="aria-label:rb_menu;title:rb_menu" title="Меню и пауза">
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>
+      </button>
+    </div>
+    <div id="rCamBar" class="pill glass" role="group" aria-label="Вид камеры" data-ta="aria-label:rb_cam">
+      <button type="button" data-view="chase" aria-pressed="true" data-t="cam_chase">За лодкой</button>
+      <button type="button" data-view="all" aria-pressed="false" data-t="cam_sails">Паруса</button>
+      <button type="button" data-view="high" aria-pressed="false" data-t="cam_high">Сверху</button>
+      <button type="button" data-view="helm" aria-pressed="false" data-t="cam_helm">У штурвала</button>
+    </div>
+
+    <div id="mapBox" class="glass">
+      <canvas id="map" role="button" tabindex="0" aria-label="Карта дистанции. Нажмите, чтобы сменить масштаб" data-ta="aria-label:aria_map"></canvas>
+      <span id="mapMode">Отрезок</span>
+    </div>
+    <div class="gcard glass tell" id="tellCard"><div class="gtitle"><span data-t="g_tell">Колдунчики</span><span id="tellVerdict"></span></div><canvas id="tellCanvas"></canvas></div>
+  </section>
+
+  <aside id="dock" aria-label="Управление яхтой" data-ta="aria-label:aria_dock">
+    <header class="rhead">
+      <svg width="30" height="30" viewBox="0 0 34 34" aria-hidden="true"><path d="M8 30 L15 3 L28 28 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 12 q4 -1 7 1" stroke="#d2343a" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M14 19 q4 -1 8 1" stroke="#1b9a55" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M4 31 h26" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <div class="rbrand"><h1 data-t="brand">Регата</h1><p data-t="brand_sub">Гонка под парусом · яхта 13 м, шлюп (тип Dufour 430)</p></div>
+      <div class="langsw" role="group" aria-label="Язык" data-ta="aria-label:aria_lang">
+        <button type="button" data-lang="ru" aria-pressed="true" lang="ru">RU</button>
+        <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
+      </div>
+      <a class="toTrainer" href="../" data-t="to_trainer" data-ta="title:to_trainer_title" title="Тренажёр настройки парусов «Колдунчик»">← Тренажёр</a>
+    </header>
+
+    <div id="instr" role="group">
+      <div class="ic" id="icSpeed"><span class="k" data-t="i_speed">Скорость</span><b id="iSpeed">0.0</b><span class="d" id="iSpeedD"></span></div>
+      <div class="ic" id="icVmc"><span class="k" data-t="i_vmc">К цели</span><b id="iVmc">0.0</b><span class="d" data-t="i_vmc_s">VMC, уз</span></div>
+      <div class="ic" id="icTwa"><span class="k" data-t="i_twa">К ветру</span><b id="iTwa">0°</b><span class="d" id="iTwaD"></span></div>
+      <div class="ic" id="icWind"><span class="k" data-t="i_wind">Ветер</span><b id="iWind">0</b><span class="d" id="iWindD"></span></div>
+      <div class="ic" id="icTrim"><span class="k" data-t="i_trim">Настройка</span><b id="iTrim">0%</b><span class="d" id="iTrimD"></span></div>
+    </div>
+
+    <div id="sailsBox">
+      <div class="sailsHead"><span class="k" data-t="sails_title">Паруса</span><b id="sailsMode">Авто</b></div>
+      <p class="note" id="sailsNote"></p>
+      <div id="quickBox" hidden></div>
+      <div id="deckBox" hidden>
+        <div class="deckwrap"><svg id="deckSvg" viewBox="0 0 360 352" role="img" aria-label="Схема кокпита и рубки" data-ta="aria-label:aria_deckSvg"></svg></div>
+        <div class="selcard" id="selCard"></div>
+        <p class="msgline" id="deckMsg" hidden></p>
+        <div class="decklog"><div class="score-label" data-t="deck_log">Журнал</div><ul class="log" id="deckLog"></ul></div>
+      </div>
+      <div class="gcard glass wind" id="windCard"><div class="gtitle"><span data-t="g_wind">Ветер</span><span data-t="g_wind_mode">вымп. / ист.</span></div><canvas id="windDial"></canvas></div>
+      <div id="courseCard">
+        <div class="sailsHead"><span class="k" data-t="cc_title">Дистанция</span><b id="ccName"></b></div>
+        <ol id="ccLegs"></ol>
+        <p class="note" id="ccWind"></p>
+      </div>
+    </div>
+
+    <div id="helmBox" data-man="tack">
+      <div id="rudder" role="slider" tabindex="0" aria-label="Руль: тяните влево или вправо" data-ta="aria-label:h_rudder_aria" aria-valuemin="-100" aria-valuemax="100" aria-valuenow="0">
+        <span class="rl" aria-hidden="true">◀</span><span class="rtrack" aria-hidden="true"><i id="rudderAct"></i></span><span class="rlbl" data-t="h_rudder">Руль</span><span class="rr" aria-hidden="true">▶</span>
+        <span class="rthumb" id="rudderThumb" aria-hidden="true"></span>
+      </div>
+      <div class="hbtns">
+        <button type="button" class="hb" id="btnTack" data-t="helm_tack">Оверштаг</button>
+        <button type="button" class="hb" id="btnGybe" data-t="helm_gybe">Фордевинд</button>
+        <button type="button" class="hb pen" id="btnPen" data-t="h_pen" hidden>Штрафной оборот</button>
+      </div>
+      <p class="keys" data-t="h_keys">← → или A D — руль · T — оверштаг · G — фордевинд · R — штрафной оборот · 1 2 4 — время · Esc — пауза</p>
+    </div>
+  </aside>
+</div>
+
+<div id="menu" class="overlay" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
+    <header class="mhead">
+      <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><path d="M8 30 L15 3 L28 28 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 12 q4 -1 7 1" stroke="#d2343a" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M14 19 q4 -1 8 1" stroke="#1b9a55" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M4 31 h26" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <div class="mtitle"><h2 id="menuTitle" data-t="brand">Регата</h2><p data-t="menu_sub">Гонка под парусом на яхте 13 м — та же модель, что в тренажёре: скорость зависит от курса к ветру и настройки парусов.</p></div>
+      <div class="langsw" role="group" aria-label="Язык" data-ta="aria-label:aria_lang">
+        <button type="button" data-lang="ru" aria-pressed="true" lang="ru">RU</button>
+        <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
+      </div>
+    </header>
+    <h3 data-t="menu_course">Трасса</h3>
+    <div id="courseList" role="radiogroup" aria-label="Трасса" data-ta="aria-label:menu_course"></div>
+    <h3 data-t="menu_sails">Паруса</h3>
+    <div class="seg modeSeg" id="modeSeg" role="radiogroup" aria-label="Паруса" data-ta="aria-label:menu_sails">
+      <button type="button" data-mode="auto" aria-pressed="true"><span data-t="sm_auto">Авто</span><small data-t="sm_auto_s">паруса настраивает экипаж</small></button>
+      <button type="button" data-mode="quick" aria-pressed="false"><span data-t="sm_quick">Быстрые настройки</span><small data-t="sm_quick_s">шкоты и погон — ваши</small></button>
+      <button type="button" data-mode="deck" aria-pressed="false"><span data-t="sm_deck">Палуба</span><small data-t="sm_deck_s">все снасти, как в тренажёре</small></button>
+    </div>
+    <h3 data-t="menu_rivals">Соперники</h3>
+    <div class="seg rivalSeg" id="rivalSeg" role="radiogroup" aria-label="Соперники" data-ta="aria-label:menu_rivals">
+      <button type="button" data-rivals="0" aria-pressed="false" data-t="rv_none">Без соперников</button>
+      <button type="button" data-rivals="3" aria-pressed="true">3</button>
+      <button type="button" data-rivals="5" aria-pressed="false">5</button>
+    </div>
+    <details class="how">
+      <summary data-t="menu_how">Как играть</summary>
+      <div class="howBody" data-th="how_html"></div>
+    </details>
+    <div class="mrow">
+      <a class="btn toTrainer" href="../" data-t="to_trainer" data-ta="title:to_trainer_title" title="Тренажёр настройки парусов «Колдунчик»">← Тренажёр</a>
+      <button type="button" class="btn primary go" id="goBtn" data-t="menu_go">На старт</button>
+    </div>
+  </div>
+</div>
+
+<div id="pauseBox" class="overlay" hidden>
+  <div class="card small" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
+    <h2 id="pauseTitle" data-t="p_title">Пауза</h2>
+    <div class="col">
+      <button type="button" class="btn primary" id="pResume" data-t="p_resume">Продолжить</button>
+      <button type="button" class="btn" id="pRestart" data-t="p_restart">Начать заново</button>
+      <button type="button" class="btn" id="pMenu" data-t="p_menu">Другая трасса</button>
+    </div>
+    <details class="how">
+      <summary data-t="menu_how">Как играть</summary>
+      <div class="howBody" data-th="how_html"></div>
+    </details>
+  </div>
+</div>
+
+<div id="results" class="overlay" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="resTitle">
+    <div class="kicker" id="resKicker"></div>
+    <h2 id="resTitle" data-t="r_title">Финиш!</h2>
+    <p class="rcourse" id="resCourse"></p>
+    <div class="rbig">
+      <div><b id="resTime">0:00</b><span id="resTimeK" data-t="r_time">Время</span></div>
+      <div><b id="resBest">—</b><span data-t="r_best">Ваш рекорд</span></div>
+    </div>
+    <p class="rpen" id="resPen" hidden></p>
+    <div class="rtableBox" id="resTableBox" hidden><h3 data-t="r_table">Результаты гонки</h3><ol class="rtable" id="resTable"></ol></div>
+    <dl class="rstats" id="resStats"></dl>
+    <div class="row">
+      <button type="button" class="btn" id="resMenu" data-t="r_menu">Другая трасса</button>
+      <button type="button" class="btn primary" id="resAgain" data-t="r_again">Ещё раз</button>
+    </div>
+  </div>
+</div>
+
+<script src="../js/i18n.js"></script>
+<script src="js/texts.js"></script>
+<script src="../vendor/three.min.js"></script>
+<script src="../vendor/OrbitControls.js"></script>
+<script src="../js/sim.js"></script>
+<script src="../js/scene.js"></script>
+<script src="../js/gauges.js"></script>
+<script src="../js/deck.js"></script>
+<script src="js/geo.js"></script>
+<script src="js/wind.js"></script>
+<script src="js/courses.js"></script>
+<script src="js/race.js"></script>
+<script src="js/pilot.js"></script>
+<script src="js/world3d.js"></script>
+<script src="js/minimap.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

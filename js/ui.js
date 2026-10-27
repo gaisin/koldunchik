@@ -142,6 +142,7 @@ function syncLangUI() {
   $$('.langsw [data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === I18N.lang)));
   $('#langBtn').textContent = I18N.lang === 'ru' ? 'EN' : 'RU';
   $('#langBtn').setAttribute('lang', I18N.lang === 'ru' ? 'en' : 'ru');
+  $$('a[href^="regatta/"]').forEach(a => a.setAttribute('href', I18N.lang === 'en' ? 'regatta/#en' : 'regatta/'));
 }
 $$('.langsw [data-lang]').forEach(b => b.addEventListener('click', () => I18N.set(b.dataset.lang)));
 $('#langBtn').addEventListener('click', () => I18N.set(I18N.lang === 'ru' ? 'en' : 'ru'));

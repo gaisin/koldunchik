@@ -63,6 +63,7 @@
       </div>
     </div>
     <button type="button" id="langBtn" class="glass" aria-label="Switch to English" data-ta="aria-label:lang_btn_aria">EN</button>
+    <a id="regattaBtn" class="glass to-regatta-ico" href="regatta/" aria-label="Регата: гонка по дистанции" title="Регата: гонка по дистанции" data-ta="aria-label:to_regatta_title;title:to_regatta_title"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21 V3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M5 4 H18 L15.5 8 L18 12 H5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></a>
     <button type="button" id="camBtn" class="glass" aria-label="Вид камеры" data-ta="aria-label:aria_cam" aria-expanded="false" aria-controls="camBar">
       <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6.5" width="13" height="11" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 10.5 L21.5 7 V17 L15.5 13.5 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
     </button>
@@ -98,7 +99,7 @@
   <aside id="panel" aria-label="Панель управления" data-ta="aria-label:aria_panel">
     <header class="brand">
       <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden="true"><path d="M8 30 L15 3 L28 28 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M15 12 q4 -1 7 1" stroke="#d2343a" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M14 19 q4 -1 8 1" stroke="#1b9a55" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M4 31 h26" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      <div class="brand-text"><h1 data-t="brand">Колдунчик</h1><p data-t="brand_sub">Тренажёр настройки парусов · яхта 13 м, шлюп (тип Dufour 430)</p></div>
+      <div class="brand-text"><h1 data-t="brand">Колдунчик</h1><p data-t="brand_sub">Тренажёр настройки парусов · яхта 13 м, шлюп (тип Dufour 430)</p><a class="to-regatta" href="regatta/" data-t="to_regatta" data-ta="title:to_regatta_title" title="Регата: гонка по дистанции">Регата →</a></div>
       <div class="langsw" role="group" aria-label="Язык" data-ta="aria-label:aria_lang">
         <button type="button" data-lang="ru" aria-pressed="true" lang="ru">RU</button>
         <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
@@ -188,6 +189,7 @@
     </div>
 
     <div class="pane" data-pane="scn" hidden>
+      <a class="regatta-card" href="regatta/"><span class="rc-t" data-t="regatta_card">Регата</span><span class="rc-s" data-t="regatta_card_sub">Гонка по дистанции на этой же яхте: старт, знаки, порывы и заходы ветра, камни и мели.</span><span class="rc-go" aria-hidden="true">→</span></a>
       <div class="freebox">
         <b id="freeTitle">Свободное плавание</b>
         <p class="note" data-t="free_note">Меняйте ветер и курс сами.</p>

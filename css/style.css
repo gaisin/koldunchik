@@ -165,6 +165,14 @@ button { font: inherit; color: inherit; }
 #langBtn { display: none; }
 .brand h1 { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 21px; letter-spacing: 0.01em; line-height: 1.1; }
 .brand p { margin: 0; font-size: 12px; color: var(--ink-2); }
+.to-regatta { display: inline-block; margin-top: 3px; font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: none; }
+.to-regatta:hover { text-decoration: underline; }
+.to-regatta-ico { display: none; }
+.regatta-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 11px 14px; border-radius: 12px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--ink); text-decoration: none; }
+.regatta-card:hover { filter: brightness(1.04); }
+.regatta-card .rc-t { font-family: var(--f-display); font-weight: 800; font-size: 17px; }
+.regatta-card .rc-s { grid-column: 1; font-size: 12.5px; color: var(--ink-2); }
+.regatta-card .rc-go { grid-column: 2; grid-row: 1 / span 2; font-size: 22px; font-weight: 700; color: var(--accent); }
 
 #scoreCard { padding: 12px 16px 6px; border-bottom: 1px solid var(--line); }
 .score-head { display: flex; gap: 14px; align-items: center; }
@@ -368,6 +376,7 @@ button { font: inherit; color: inherit; }
   #langBtn { display: grid; place-items: center; position: absolute; top: 10px; right: 56px; z-index: 6; width: 40px; height: 40px; padding: 0; border-radius: 12px; cursor: pointer; font-family: var(--f-display); font-weight: 700; font-size: 14px; letter-spacing: 0.04em; }
   #camBtn { display: grid; place-items: center; position: absolute; top: 10px; right: 10px; z-index: 6; width: 40px; height: 40px; padding: 0; border-radius: 12px; cursor: pointer; }
   #camBtn[aria-expanded="true"] { background: var(--accent); border-color: transparent; color: #fff; }
+  .to-regatta-ico { display: grid; place-items: center; position: absolute; top: 56px; right: 10px; z-index: 5; width: 40px; height: 40px; border-radius: 12px; }
   #camBar { display: none; top: 56px; right: 10px; gap: 5px; }
   #camBar.open { display: flex; }
   #camBar .pill { width: 236px; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 4px; }
