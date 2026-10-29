@@ -145,6 +145,7 @@ a.btn.toTrainer { display: inline-flex; align-items: center; padding: 8px 12px; 
 .btn.go { font-size: 16px; padding: 11px 26px; border-radius: 11px; margin-left: auto; }
 details.how { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
 details.how summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+#menu .contacts { margin-top: 12px; }
 .howBody h3 { margin: 12px 0 4px; font-family: var(--f-body); font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--ink); }
 .howBody h3::after { display: none; }
 .howBody p, .howBody li { font-size: 13px; color: var(--ink-2); max-width: 70ch; }
